@@ -37,6 +37,12 @@ Help people understand what researchers have learned before they contact a study
 
 **Acceptance checks:** no results, fetch failure, and results available render differently; values retain group labels, denominators, units, time periods and source; keyboard and mobile users can read the section; printed summaries include the source; changing checklist answers never changes reported outcomes or sends answers to a server.
 
+### Optional reduced provider directory — last priority
+
+The reduced NPI-only plan is [DOCTORS_REDUCED_PLAN.md](DOCTORS_REDUCED_PLAN.md), with current owner assignments in [TASKS.md](TASKS.md). It is planned, not implemented; only ship a complete verified EN/ES directory after core work is safe and by the 4:15 PM go/no-go. Freeze is 5 PM, with no new feature work after it. NPI practice data/approximate ZIP distances only: no HRSA, doctor transit/geocoding, extra print features or expanded translations. Preserve a safe other-language trial experience.
+
+Neil's original full concept is retained unchanged in [post-competition/find-a-doctor-full](post-competition/find-a-doctor-full/README.md). Its HRSA, transit and broader-language tasks are future reference, not today's scope. Only verified deployed features belong in the video.
+
 Out of scope: accounts, storing health info (nothing leaves the browser except the search query), any eligibility decision.
 
 ## 3. Data & APIs (all verified working today)

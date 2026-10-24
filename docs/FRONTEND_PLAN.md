@@ -221,3 +221,9 @@ Each measure requires its source `title`, `timeFrame`, `statistic`, and nonempty
 An available report may include an English `summary` and `limitations`, sourced to the registry report. It must summarize findings faithfully, including reported harms and caveats, and never invent patient quotes. The UI fixes the source link to the same NCT ID on ClinicalTrials.gov, labels the report date, and includes the source URL in print. Result text is escaped. Checklist answers do not affect results and are not sent to this endpoint.
 
 No production outcome numbers were added to mocks. Until the backend is connected, the new section says results have not been checked. Synthetic numbers appear only in tests. A live results integration still requires checking at least one real posted-results study against the official source before release.
+
+## 17. Optional reduced provider directory — planning only
+
+Read [DOCTORS_REDUCED_PLAN.md](DOCTORS_REDUCED_PLAN.md), Phases 0/2/3, before implementation. This is last priority after PR #16's fallback and hero-search blockers, core integration and QA. Neil owns one shared-contract change after Hasan reviews it, then provider tab/list/link and EN/ES states in a separate Kiro worktree. Preserve the six-language trial experience with safe other-language navigation. No half-built or mock-only live feature. The 4:15 PM completion gate and 5 PM freeze apply.
+
+The original full frontend design is reserved in [the post-competition archive](post-competition/find-a-doctor-full/frontend-plan.md); it is not a second active task list.
