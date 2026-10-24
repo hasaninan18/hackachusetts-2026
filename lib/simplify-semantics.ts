@@ -1,23 +1,25 @@
 // Semantic safety BACKSTOP for the simplify pipeline (spec: simplify) — SDK-FREE.
 //
-// WHY THIS MODULE EXISTS, AND HOW IT CHANGED (the default-deny redesign):
-// Previously this module tried to VALIDATE whatever questions the MODEL wrote. That design
-// was DEFAULT-ALLOW: it accepted any question and rejected only the specific mismatches it
-// had been taught (the T1/T2 diabetes family, section polarity, some staff-only keywords),
-// so anything outside those taught patterns passed — an unrelated subject ("Do you have
-// asthma?" cited to a diabetes criterion), a negated question ("Do you NOT have type 2
-// diabetes?") whose rule was never flipped, or an age question with the wrong polarity.
+// WHY THIS MODULE EXISTS, AND HOW IT CHANGED (the default-deny redesign, then the final fix):
+// Previously this module tried to VALIDATE whatever questions the MODEL wrote (default-allow).
+// The redesign moved question construction to the SERVER (lib/simplify-mappings.ts); this
+// module became a VERIFIER that the server's own constructed questions still agree with the
+// mapping registry and the study's real registry facts.
 //
-// The checklist is now CONSTRUCTED BY THE SERVER from lib/simplify-mappings.ts. The model
-// authors only prose. This module is therefore no longer a validator of model creativity:
-// it is a VERIFIER that the server's own constructed questions still agree, byte-for-byte,
-// with the mapping registry AND with the study's real registry facts (fail closed if not).
-// It is pure + SDK-free so it unit-tests without Bedrock and never drags in the AWS SDK.
+// THE FINAL FIX: the verifier must gate free-text questions with the SAME rule construction
+// uses — STUDY-PINNED, HASH-GATED, EXACT-LINE — so the backstop can never be weaker than
+// construction. It no longer uses section.includes() SUBSTRING checks (which accepted an
+// altered line that merely CONTAINED the reviewed substring). For every free-text question:
+//   - detail.nctId (normalized) must equal the mapping's pinned nctId;
+//   - the study's criteria-revision hash must equal the reviewed stored hash;
+//   - the question's source_criterion must normalize to the mapping's exactLine; AND
+//   - EXACTLY ONE line in the mapping's declared section must equal that exactLine
+//     (normalizeLine ===), i.e. matchExactLine() returns a line equal to source_criterion.
 //
-// It additionally keeps the structural guards the redesign requires as a defense-in-depth
-// layer: NEGATION (a question's polarity-bearing text must not be negated relative to its
-// rule) and AGE POLARITY (an age question must carry the inclusion/ruleOutIf="no" logic and
-// a structured-age citation whose field+value match the study).
+// It keeps the structural guards the redesign requires as defense-in-depth: NEGATION of the
+// question TEXT, AGE POLARITY + structured-age citation checks, STAFF-ONLY subject/evidence,
+// UNKNOWN id, and FIXED kind/ruleOutIf/wording. It is pure + SDK-free (unit-tests without
+// Bedrock, never drags in the AWS SDK).
 import type { SimplifyModel, SimplifyQuestion } from "./bedrock-types";
 import type { TrialDetail } from "./types";
 import type { Lang } from "./types";
@@ -27,28 +29,34 @@ import {
   hasQuestionWording,
   type WordingLang,
   norm as mapNorm,
+  normalizeLine,
   splitSections,
+  matchExactLine,
+  criteriaRevisionHash,
+  REVIEWED_CRITERIA_HASH,
+  normNctId,
 } from "./simplify-mappings";
 import { isStructuredAgeCriterion, parseStructuredAgeCitation } from "./bedrock-age";
 
 // ---------------------------------------------------------------------------
 // Text normalization (shared spelling with the mapping registry).
 // ---------------------------------------------------------------------------
-/** Collapse whitespace, lower-case, trim — for robust substring/keyword comparison. */
+/** Collapse whitespace, lower-case, trim — for robust keyword comparison. */
 export const norm = mapNorm;
 
 // ---------------------------------------------------------------------------
 // (1) Section polarity of CITED EVIDENCE — delegated to the single heading authority.
 // ---------------------------------------------------------------------------
+// NOTE: evidencePolarity is NO LONGER used to GATE free-text questions (the exact-line rule
+// does that). It is retained as a helper for diagnostics/tests and still resolves a quote to
+// its section using the same explicit-heading splitter.
 export type CriterionPolarity = "inclusion" | "exclusion" | "unknown";
 
 /**
  * Determine the authoritative polarity of a quoted source_criterion by locating it in the
  * inclusion vs exclusion section of the criteria text, using the SAME explicit-heading
  * splitter the mapping registry uses. Returns "unknown" when the quote is not substantively
- * present in exactly one well-delimited section. Missing/ambiguous headings yield null
- * sections, so a quote there is "unknown" (callers reject — fail closed; headings never
- * silently default to inclusion).
+ * present in exactly one well-delimited section. (Diagnostic helper; non-gating.)
  */
 export function evidencePolarity(
   sourceCriterion: string,
@@ -76,11 +84,11 @@ export function splitCriteriaSections(criteriaText: string): {
 // ---------------------------------------------------------------------------
 // (2) Negation guard — a question's text must not be negated relative to its rule.
 // ---------------------------------------------------------------------------
-// A yes/no rule-out question carries an implicit polarity: "Do you have X?" asks about the
-// PRESENCE of X. A negated phrasing ("Do you NOT have X?", "Do you not currently receive
-// X?") flips the meaning so that answering "yes"/"no" means the OPPOSITE of what the fixed
-// rule assumes. Because our question wording is server-authored from the registry we never
-// emit a negation; this guard rejects one if it ever appears (defense in depth).
+// A yes/no rule-out question carries an implicit polarity. A negated phrasing flips the
+// meaning so that answering "yes"/"no" means the OPPOSITE of what the fixed rule assumes.
+// Because our question wording is server-authored from the registry we never emit a negation;
+// this guard rejects one if it ever appears (defense in depth). NOTE: this guards the
+// QUESTION TEXT, not the evidence — the evidence side is now guarded by the exact-line rule.
 const NEGATION_RES: RegExp[] = [
   /\bdo\s+you\s+not\b/,
   /\bare\s+you\s+not\b/,
@@ -258,19 +266,17 @@ export function staffOnlyEvidenceClassOf(text: string): string | null {
 // ---------------------------------------------------------------------------
 // THE BACKSTOP: verify SERVER-CONSTRUCTED questions against the mapping + registry.
 // ---------------------------------------------------------------------------
-// Because questions are built server-side, this never runs against model creativity. It is
-// a fail-closed assertion that the construction stayed faithful to the registry and the
-// supported mappings. If ANY question disagrees, we reject the whole model (safe error).
-//
-// Per question:
+// Because questions are built server-side, this never runs against model creativity. It is a
+// fail-closed assertion that the construction stayed faithful. If ANY question disagrees, we
+// reject the whole model (safe error). Per question:
 //  - the question id must be a known mapping id;
 //  - FREE-TEXT: text must equal the mapping's own wording for this language; kind and
-//    ruleOutIf must equal the mapping's fixed values; evidence must be present in the
-//    declared section; subject must not mismatch; subject/evidence must not be staff-only;
-//    text must not be negated;
-//  - AGE: kind must be "inclusion" and ruleOutIf "no"; text age-subject must parse; the
-//    source must be a structured-age citation whose field matches the subject bound and
-//    whose value matches the study's actual structured bound; text must not be negated.
+//    ruleOutIf must equal the mapping's fixed values; the study must be the pinned study and
+//    its criteria hash must match; source_criterion must normalize to the mapping's exactLine
+//    AND exactly one line in the declared section must equal it (matchExactLine); subject must
+//    not mismatch; subject/evidence must not be staff-only; text must not be negated;
+//  - AGE: kind "inclusion", ruleOutIf "no"; age-subject parses; structured-age citation whose
+//    field matches the bound and value matches the study; text must not be negated.
 export function checkQuestionSemantics(
   model: SimplifyModel,
   detail: TrialDetail,
@@ -286,6 +292,7 @@ export function checkQuestionSemantics(
 
   for (const q of model.questions) {
     const err = checkOneQuestion(q, {
+      nctId: detail.nctId,
       criteriaText: criteriaText ?? "",
       minAgeYears,
       maxAgeYears,
@@ -299,6 +306,7 @@ export function checkQuestionSemantics(
 }
 
 interface CheckCtx {
+  nctId: string;
   criteriaText: string;
   minAgeYears: number | null;
   maxAgeYears: number | null;
@@ -378,27 +386,36 @@ function checkFreeTextQuestion(
   // SUBJECT cross-check (diabetes family) — must not be a mismatch.
   const mismatch = detectConditionMismatch(q.text, q.source_criterion);
   if (mismatch) return mismatch;
-  // EVIDENCE must live in the declared section and match the mapping's required fact.
-  const { inclusion, exclusion } = splitSections(ctx.criteriaText);
-  const section = mapping.section === "inclusion" ? inclusion : exclusion;
-  if (section === null) {
-    return `the ${mapping.section} section is missing or ambiguous, so the evidence polarity cannot be confirmed`;
+
+  // STUDY PIN: the study must be the one this mapping is pinned to.
+  if (normNctId(ctx.nctId) !== mapping.nctId) {
+    return `study ${normNctId(ctx.nctId)} is not the pinned study ${mapping.nctId} for this mapping`;
   }
-  if (!section.includes(norm(q.source_criterion))) {
-    return `source_criterion is not present in the ${mapping.section} section`;
+  // CRITERIA-REVISION HASH: the study's criteria must be the reviewed revision.
+  const expectedHash = REVIEWED_CRITERIA_HASH[mapping.nctId];
+  if (!expectedHash) {
+    return `no reviewed criteria hash is stored for ${mapping.nctId}`;
   }
-  if (!section.includes(norm(mapping.evidenceMatch))) {
-    return `the mapping's required fact is not present in the ${mapping.section} section`;
+  const actualHash = criteriaRevisionHash(ctx.criteriaText);
+  if (actualHash !== expectedHash) {
+    return `criteria-revision hash mismatch for ${mapping.nctId} (registry revised); no free-text question is valid`;
   }
-  // Evidence polarity must agree with the declared kind.
-  const polarity = evidencePolarity(q.source_criterion, ctx.criteriaText);
-  if (polarity !== mapping.section) {
-    return `cited evidence resolves to the ${polarity} section but the mapping is ${mapping.section}`;
+  // EXACT-LINE: source_criterion must normalize to the mapping's exactLine AND exactly one
+  // line in the declared section must equal it. No substring matching.
+  if (normalizeLine(q.source_criterion) !== normalizeLine(mapping.exactLine)) {
+    return `source_criterion does not normalize to the mapping's reviewed exact line`;
   }
-  // ruleOutIf must follow from polarity: inclusion -> "no", exclusion -> "yes".
-  const expectedRuleOut = mapping.section === "inclusion" ? "no" : "yes";
-  if (q.ruleOutIf !== expectedRuleOut) {
-    return `cites an ${mapping.section} criterion so ruleOutIf should be "${expectedRuleOut}"`;
+  const { inclusionRaw, exclusionRaw } = splitSections(ctx.criteriaText);
+  const sectionRaw = mapping.section === "inclusion" ? inclusionRaw : exclusionRaw;
+  if (sectionRaw === null) {
+    return `the ${mapping.section} section is missing or ambiguous, so the exact line cannot be confirmed`;
+  }
+  const matched = matchExactLine(sectionRaw, mapping.exactLine);
+  if (matched === null) {
+    return `the reviewed exact line does not uniquely appear in the ${mapping.section} section`;
+  }
+  if (normalizeLine(matched) !== normalizeLine(q.source_criterion)) {
+    return `the section's matched line does not equal the question's source_criterion`;
   }
   return null;
 }

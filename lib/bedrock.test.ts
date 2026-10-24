@@ -2,7 +2,12 @@
 // No network, no live SDK: the Converse transport is INJECTED as a plain function. The
 // model authors ONLY prose; the server builds the checklist from lib/simplify-mappings.ts,
 // so a model that tries to inject its own questions/kind/ruleOutIf can never surface them.
-import { describe, expect, it } from "vitest";
+//
+// Free-text questions are STUDY-PINNED + HASH-GATED + EXACT-LINE: the hero detail uses the
+// shared reviewed fixture (lib/test-fixtures/nct07043426.ts) so the hash matches and the
+// three mappings fire. The regression tests at the bottom prove an altered hospice line
+// yields NO hospice question, both at the matcher level and through the full pipeline.
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TrialDetail } from "./types";
 import {
   BEDROCK_TOTAL_BUDGET_MS,
@@ -24,44 +29,24 @@ import {
   type SimplifyModel,
   type SimplifyProse,
 } from "./bedrock";
+import {
+  buildChecklist,
+  matchExactLine,
+  CRITERIA_REVISION_WARNING,
+} from "./simplify-mappings";
+import {
+  HERO_CRITERIA,
+  HOSPICE_LINE,
+  heroDetail,
+  heroCriteriaWithHospice,
+} from "./test-fixtures/nct07043426";
 
 // ---------------------------------------------------------------------------
-// Fixtures — the REAL NCT07043426 criteria (verbatim from ClinicalTrials.gov v2).
+// Fixtures — the REAL NCT07043426 criteria (verbatim, from the shared fixture).
 // ---------------------------------------------------------------------------
-const HERO_CRITERIA = [
-  "Inclusion Criteria:",
-  "",
-  "* Diagnosis: Must have a diagnosis of Type 2 Diabetes Mellitus (T2DM), confirmed by a current diagnosis in the medical record or at least two billing codes in the last two years, or an HbA1c level ≥6.5% in the last two years.",
-  "* Uncontrolled T2DM: Must have an HbA1c ≥9% at the time of screening.",
-  "* Health-Related Social Needs: Must have been screened for health related social needs (HRSNs) during a General Internal Medicine (GIM) visit in the last 3 months and screened positive for at least one HRSN.",
-  "",
-  "Exclusion Criteria:",
-  "",
-  "* Patients enrolled in Complex Care Management (CCM).",
-  "* Patients receiving hospice care.",
-  "* Patients who are deceased",
-  "* Patients with Type 1 Diabetes Mellitus (T1DM).",
-].join("\n");
+const DETAIL: TrialDetail = heroDetail();
 
-const DETAIL: TrialDetail = {
-  nctId: "NCT07043426",
-  title: "THRIVE-DM at Boston Medical Center",
-  conditions: ["Type 2 Diabetes"],
-  phase: "Phase 2",
-  nearestSite: { name: "Boston Medical Center", city: "Boston", lat: 42.335, lon: -71.0728, locationPrecision: "facility" },
-  distanceMi: 0,
-  briefSummary: "A diabetes study. Call 617-555-0100 or email team@bmc.org.",
-  eligibility: {
-    minAgeYears: 18,
-    maxAgeYears: null,
-    sex: "ALL",
-    healthyVolunteers: false,
-    criteriaText: HERO_CRITERIA,
-  },
-  sites: [{ name: "Boston Medical Center", city: "Boston", lat: 42.335, lon: -71.0728, locationPrecision: "facility" }],
-  contacts: [{ name: "Study Team", phone: "617-555-0100", email: "team@bmc.org" }],
-  stops: [],
-};
+afterEach(() => vi.restoreAllMocks());
 
 function validProse(overrides: Partial<SimplifyProse> = {}): SimplifyProse {
   return {
@@ -329,10 +314,6 @@ describe("generateSimplified — total budget bound (hung + slow models)", () =>
 });
 
 describe("generateSimplified — translation retry then safe error", () => {
-  // The translation system prompt is uniquely identified by its opening sentence. We do NOT
-  // discriminate on the substring "translate": the English PROSE prompt also contains it
-  // ("Never translate or reformat them."), so matching on it would also corrupt the English
-  // generation and let a self-consistent bad number slip the invariant.
   const isTranslateCall = (prompt: { system: string }): boolean =>
     prompt.system.includes("You translate a small JSON object");
   it("bad translations exhaust attempts → safe 503-worthy error", async () => {
@@ -341,27 +322,19 @@ describe("generateSimplified — translation retry then safe error", () => {
     const converse: Converse = async (_m, prompt) => {
       if (isTranslateCall(prompt)) {
         trCalls += 1;
-        // A translation that INVENTS a number (99) not present in the English prose. Each
-        // attempt returns the same bad prose so the bounded retries all fail the invariant.
         return proseJson({ timeCommitment: "Unas visitas durante 99 meses." });
       }
       enCalls += 1;
       return proseJson();
     };
     const r = await generateSimplified({ detail: DETAIL, lang: "es", converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
-    // The invented number is caught by checkProseTranslationInvariants on every attempt, so
-    // the request exhausts its bounded attempts and returns a safe error — never the body.
     expect(r.ok).toBe(false);
-    // The English generation succeeded (clean prose); only the translation kept failing.
     expect(enCalls).toBe(1);
-    // Bounded: primary + retry + fallback = 3 translation attempts, no more.
     expect(trCalls).toBe(3);
   });
   it("a translation that changes the disease type is rejected → safe error", async () => {
     const converse: Converse = async (_m, prompt) => {
       if (prompt.system.includes("You translate a small JSON object")) {
-        // "type 1" where the English said "type 2": a disease-type flip. The number 1 is new
-        // relative to the English prose, so the numeric-invariant fails closed on every try.
         return proseJson({ summary: "Este estudio en Boston Medical Center analiza la atención de la diabetes tipo 1. Participar es su elección." });
       }
       return proseJson();
@@ -394,12 +367,107 @@ describe("generateSimplified — translation retry then safe error", () => {
     const r = await generateSimplified({ detail: DETAIL, lang: "es", converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
     expect(r.ok).toBe(true);
     if (r.ok) {
-      // Questions are server-built and localized from the mapping's OWN Spanish wording,
-      // never from the model's translation.
       const t2 = r.body.questions.find((q) => q.id === "t2dm_diagnosis");
       expect(t2?.text).toBe("¿Tiene diabetes tipo 2?");
       expect(t2?.ruleOutIf).toBe("no");
       expect(t2?.kind).toBe("inclusion");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FINAL-FIX regressions: an altered hospice line must NOT produce a hospice question, proven
+// at BOTH the exact-line matcher level (hash-independent) and the full pipeline level.
+// ---------------------------------------------------------------------------
+describe("altered hospice line → no hospice question (exact-line + pipeline)", () => {
+  const SECTION_RAW = (criteria: string) => {
+    const exc = criteria.indexOf("Exclusion Criteria:");
+    return exc >= 0 ? criteria.slice(exc) : null;
+  };
+
+  it("(a) NEGATED hospice line: matcher rejects it directly (hash-independent)", () => {
+    const altered = heroCriteriaWithHospice("Patients not currently receiving hospice care.");
+    // Exact-line matcher proves the rule itself rejects it, independent of the hash gate.
+    expect(matchExactLine(SECTION_RAW(altered), HOSPICE_LINE)).toBeNull();
+  });
+
+  it("(a) NEGATED hospice line: full pipeline yields NO hospice question", async () => {
+    const altered = heroCriteriaWithHospice("Patients not currently receiving hospice care.");
+    const detail = heroDetail({ criteriaText: altered });
+    const converse: Converse = async () => proseJson();
+    const r = await generateSimplified({ detail, lang: "en", converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
+    // The edited line changes the hash → no free-text at all → only age_min (1) → safe error.
+    expect(r.ok).toBe(false);
+    // And even if we bypass the hash via buildChecklist directly with a spy, still no hospice.
+    const built = buildChecklist(detail, "en", vi.fn());
+    if (built.ok) expect(built.questions.some((q) => q.id === "hospice")).toBe(false);
+  });
+
+  it("(b) EXTRA-CLAUSE hospice line: matcher rejects it directly (hash-independent)", () => {
+    const altered = heroCriteriaWithHospice("Patients receiving hospice care or palliative care.");
+    expect(matchExactLine(SECTION_RAW(altered), HOSPICE_LINE)).toBeNull();
+  });
+
+  it("(b) EXTRA-CLAUSE hospice line: full pipeline yields NO hospice question", async () => {
+    const altered = heroCriteriaWithHospice("Patients receiving hospice care or palliative care.");
+    const detail = heroDetail({ criteriaText: altered });
+    const converse: Converse = async () => proseJson();
+    const r = await generateSimplified({ detail, lang: "en", converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
+    expect(r.ok).toBe(false);
+    const built = buildChecklist(detail, "en", vi.fn());
+    if (built.ok) expect(built.questions.some((q) => q.id === "hospice")).toBe(false);
+  });
+
+  it("(c) the reviewed exact lines produce exactly the 3 free-text + age_min, en and es", async () => {
+    for (const lang of ["en", "es"] as const) {
+      const built = buildChecklist(DETAIL, lang, vi.fn());
+      expect(built.ok).toBe(true);
+      if (!built.ok) return;
+      const byId = new Map(built.questions.map((q) => [q.id, q]));
+      expect([...byId.keys()].sort()).toEqual(["age_min", "hospice", "t1dm_exclusion", "t2dm_diagnosis"]);
+      expect(byId.get("t2dm_diagnosis")!.kind).toBe("inclusion");
+      expect(byId.get("t2dm_diagnosis")!.ruleOutIf).toBe("no");
+      expect(byId.get("t1dm_exclusion")!.kind).toBe("exclusion");
+      expect(byId.get("t1dm_exclusion")!.ruleOutIf).toBe("yes");
+      expect(byId.get("hospice")!.kind).toBe("exclusion");
+      expect(byId.get("hospice")!.ruleOutIf).toBe("yes");
+      expect(byId.get("hospice")!.source_criterion).toBe(HOSPICE_LINE);
+      if (lang === "en") {
+        expect(byId.get("t2dm_diagnosis")!.text).toBe("Do you have type 2 diabetes?");
+        expect(byId.get("hospice")!.text).toBe("Are you currently receiving hospice care?");
+      } else {
+        expect(byId.get("t2dm_diagnosis")!.text).toBe("¿Tiene diabetes tipo 2?");
+        expect(byId.get("hospice")!.text).toBe("¿Está recibiendo cuidados de hospicio (hospice) actualmente?");
+      }
+    }
+  });
+
+  it("(d) a DIFFERENT nctId with byte-identical criteria → age-only → safe error", async () => {
+    const detail = { ...heroDetail(), nctId: "NCT88888888" };
+    const converse: Converse = async () => proseJson();
+    const r = await generateSimplified({ detail, lang: "en", converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
+    expect(r.ok).toBe(false);
+    const built = buildChecklist(detail, "en", vi.fn());
+    expect(built.ok).toBe(false); // age_min only (1) < MIN
+  });
+
+  it("(e) a changed criteria hash → no free-text, ONE criteria-revision warning, pipeline safe error", async () => {
+    // Edit an UNRELATED line (the three reviewed lines stay verbatim) → hash changes.
+    const revised = HERO_CRITERIA.replace(
+      "* Patients who are deceased",
+      "* Patients who are deceased or incarcerated",
+    );
+    const detail = heroDetail({ criteriaText: revised });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const converse: Converse = async () => proseJson();
+    const r = await generateSimplified({ detail, lang: "en", converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
+    expect(r.ok).toBe(false); // only age_min survives → below the floor → safe error
+    // The warning fired once (via the default console.warn through buildChecklist("en")).
+    const revisionCalls = warnSpy.mock.calls.filter((c) => String(c[0]).includes(CRITERIA_REVISION_WARNING));
+    expect(revisionCalls).toHaveLength(1);
+    expect(String(revisionCalls[0][0])).toContain("NCT07043426");
+    // Age still builds (just not enough on its own).
+    const built = buildChecklist(detail, "en", vi.fn());
+    expect(built.ok).toBe(false);
   });
 });

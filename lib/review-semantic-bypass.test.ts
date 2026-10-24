@@ -1,13 +1,9 @@
 // PERMANENT review probes, driven through the FULL pipeline (generateSimplified) under the
-// DEFAULT-DENY redesign (spec: simplify). No network, no live SDK — Converse is injected.
+// STUDY-PINNED, HASH-GATED, EXACT-LINE rule (spec: simplify). No network, no live SDK —
+// Converse is injected.
 //
-// These are the three bypass probes from the production semantic review
-// (/private/tmp/trialpath-semantic-review/lib/review-semantic-bypass.test.ts), plus the
-// three ORIGINAL live production regressions (the saved EN/ES outputs with the T1/T2
-// mismatch, an age question citing the diagnosis paragraph, and CCM asked as a question).
-//
-// Under the OLD default-allow design each of these was a model-authored question that slipped
-// the validator. Under the new design the MODEL NEVER AUTHORS QUESTIONS: the server builds
+// These are the three bypass probes from the production semantic review, plus the three
+// ORIGINAL live production regressions. The MODEL NEVER AUTHORS QUESTIONS: the server builds
 // the checklist from lib/simplify-mappings.ts. So here we feed a MALICIOUS model that emits
 // exactly these bad questions inside its JSON, and assert the pipeline either:
 //   (a) returns the correct SERVER-BUILT questions (the injected ones never appear), or
@@ -15,37 +11,12 @@
 // but NEVER surfaces the bad question. This file is the end-to-end witness; the unit-level
 // proofs live in lib/simplify-semantics.test.ts and lib/simplify-mappings.test.ts.
 import { describe, expect, it } from "vitest";
-import type { TrialDetail } from "./types";
 import { generateSimplified, BEDROCK_TOTAL_BUDGET_MS, type Converse } from "./bedrock";
+import { heroDetail, T2_LINE } from "./test-fixtures/nct07043426";
 
-const HERO_CRITERIA = [
-  "Inclusion Criteria:",
-  "",
-  "* Diagnosis: Must have a diagnosis of Type 2 Diabetes Mellitus (T2DM), confirmed by a current diagnosis in the medical record or at least two billing codes in the last two years, or an HbA1c level ≥6.5% in the last two years.",
-  "* Uncontrolled T2DM: Must have an HbA1c ≥9% at the time of screening.",
-  "* Health-Related Social Needs: Must have been screened for health related social needs (HRSNs) during a General Internal Medicine (GIM) visit in the last 3 months and screened positive for at least one HRSN.",
-  "",
-  "Exclusion Criteria:",
-  "",
-  "* Patients enrolled in Complex Care Management (CCM).",
-  "* Patients receiving hospice care.",
-  "* Patients who are deceased",
-  "* Patients with Type 1 Diabetes Mellitus (T1DM).",
-].join("\n");
-
-const DETAIL: TrialDetail = {
-  nctId: "NCT07043426",
-  title: "THRIVE-DM at Boston Medical Center",
-  conditions: ["Type 2 Diabetes"],
-  phase: "Phase 2",
-  nearestSite: { name: "Boston Medical Center", city: "Boston", lat: 42.335, lon: -71.0728, locationPrecision: "facility" },
-  distanceMi: 0,
-  briefSummary: "A diabetes study. Call 617-555-0100 or email team@bmc.org.",
-  eligibility: { minAgeYears: 18, maxAgeYears: null, sex: "ALL", healthyVolunteers: false, criteriaText: HERO_CRITERIA },
-  sites: [{ name: "Boston Medical Center", city: "Boston", lat: 42.335, lon: -71.0728, locationPrecision: "facility" }],
-  contacts: [{ name: "Study Team", phone: "617-555-0100", email: "team@bmc.org" }],
-  stops: [],
-};
+// The hero detail uses the shared reviewed criteria so the hash matches and the three
+// study-pinned exact-line mappings fire.
+const DETAIL = heroDetail();
 
 // The server-built hero checklist ids (what the response must always contain on success).
 const SERVER_IDS = ["age_min", "hospice", "t1dm_exclusion", "t2dm_diagnosis"];
@@ -80,7 +51,7 @@ describe("review bypass probes — end-to-end, server checklist always wins", ()
   it("PROBE 1: asthma question citing T2DM evidence can never surface", async () => {
     const r = await runEn(
       proseWithInjected([
-        { id: "injected", text: "Do you have asthma?", ruleOutIf: "no", kind: "inclusion", source_criterion: "Must have a diagnosis of Type 2 Diabetes Mellitus (T2DM)" },
+        { id: "injected", text: "Do you have asthma?", ruleOutIf: "no", kind: "inclusion", source_criterion: T2_LINE },
       ]),
     );
     assertCleanServerChecklist(r, /asthma/i);
@@ -89,7 +60,7 @@ describe("review bypass probes — end-to-end, server checklist always wins", ()
   it('PROBE 2: "Do you NOT have type 2 diabetes?" with a positive rule can never surface', async () => {
     const r = await runEn(
       proseWithInjected([
-        { id: "t2dm_diagnosis", text: "Do you NOT have type 2 diabetes?", ruleOutIf: "no", kind: "inclusion", source_criterion: "Must have a diagnosis of Type 2 Diabetes Mellitus (T2DM)" },
+        { id: "t2dm_diagnosis", text: "Do you NOT have type 2 diabetes?", ruleOutIf: "no", kind: "inclusion", source_criterion: T2_LINE },
       ]),
     );
     assertCleanServerChecklist(r, /\bnot\b/i);
@@ -123,8 +94,6 @@ describe("original live production regressions — end-to-end, never surface", (
         { id: "diabetes_type", text: "Do you have type 2 diabetes?", ruleOutIf: "yes", kind: "exclusion", source_criterion: "Patients with Type 1 Diabetes Mellitus (T1DM)." },
       ]),
     );
-    // The server builds BOTH a correct T2 (inclusion/no) and a correct T1 (exclusion/yes),
-    // neither of which is the live defect (a T2 question that rules you out on "yes").
     if (r.ok) {
       const t2 = r.body.questions.find((q) => q.id === "t2dm_diagnosis");
       expect(t2?.ruleOutIf).toBe("no");

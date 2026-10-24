@@ -1,14 +1,18 @@
-// Tests for POST /api/simplify (spec: simplify) under the DEFAULT-DENY redesign.
+// Tests for POST /api/simplify (spec: simplify) under the STUDY-PINNED, HASH-GATED,
+// EXACT-LINE rule.
 //
 // The route is the I/O layer, so two things are mocked: the upstream `fetch`
 // (ClinicalTrials.gov) and the Bedrock SDK's ConverseCommand transport. NO live Bedrock
 // call is ever made. The Bedrock mock is a queue of responses so each test controls exactly
-// what the model "returns" and we can assert retry/fallback/timeout behavior.
+// what the model "returns".
 //
 // The model now authors ONLY prose; the SERVER builds the checklist from the real registry
-// criteria. So the mock study body carries the REAL NCT07043426 criteria and the mock model
-// returns prose only. A model that injects its own questions can never surface them.
+// criteria. Free-text questions are PINNED to NCT07043426 and gated by the criteria-revision
+// hash, so the success cases that expect the full checklist use NCT07043426 with the shared
+// reviewed fixture criteria. A DIFFERENT nctId (even with identical criteria) gets no
+// free-text questions → age-only → below the floor → 503.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { HERO_CRITERIA } from "../../../lib/test-fixtures/nct07043426";
 // --- Bedrock SDK mock -------------------------------------------------------
 type SendBehavior = string | Error | (() => Promise<string>);
 const bedrock = {
@@ -34,21 +38,8 @@ vi.mock("@aws-sdk/client-bedrock-runtime", () => {
 import { clearSimplifyCache } from "../../../lib/bedrock";
 import { POST } from "./route";
 // --- helpers ----------------------------------------------------------------
+// The PINNED hero study: free-text questions build only for this id with the reviewed hash.
 const NCT = "NCT07043426";
-const HERO_CRITERIA = [
-  "Inclusion Criteria:",
-  "",
-  "* Diagnosis: Must have a diagnosis of Type 2 Diabetes Mellitus (T2DM), confirmed by a current diagnosis in the medical record or at least two billing codes in the last two years, or an HbA1c level ≥6.5% in the last two years.",
-  "* Uncontrolled T2DM: Must have an HbA1c ≥9% at the time of screening.",
-  "* Health-Related Social Needs: Must have been screened for health related social needs (HRSNs) during a General Internal Medicine (GIM) visit in the last 3 months and screened positive for at least one HRSN.",
-  "",
-  "Exclusion Criteria:",
-  "",
-  "* Patients enrolled in Complex Care Management (CCM).",
-  "* Patients receiving hospice care.",
-  "* Patients who are deceased",
-  "* Patients with Type 1 Diabetes Mellitus (T1DM).",
-].join("\n");
 
 function studyBody(nct = NCT) {
   return {
@@ -148,17 +139,16 @@ describe("validation", () => {
 });
 describe("success", () => {
   it("200 with frontend-contract fields, SERVER-built questions, and preserved identifiers", async () => {
-    const nct = "NCT10000001";
-    mockFetchStudy(nct);
+    mockFetchStudy(NCT);
     bedrock.queue = [goodProse()];
-    const res = await POST(req({ nct, lang: "en" }));
+    const res = await POST(req({ nct: NCT, lang: "en" }));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.whatItStudies).toBeTruthy();
     expect(body.whatYouDo).toBeTruthy();
     expect(body.lang).toBe("en");
     expect(Array.isArray(body.questions)).toBe(true);
-    // Server-built: age_min + T2DM + T1DM + hospice.
+    // Server-built: age_min + T2DM + T1DM + hospice (the pinned study with the reviewed hash).
     const ids = body.questions.map((q: { id: string }) => q.id).sort();
     expect(ids).toEqual(["age_min", "hospice", "t1dm_exclusion", "t2dm_diagnosis"]);
     for (const q of body.questions) expect(["yes", "no"]).toContain(q.ruleOutIf);
@@ -168,16 +158,24 @@ describe("success", () => {
     expect(bedrock.modelIds).toEqual(["primary-model"]);
   });
   it("a model that injects its own questions cannot change the server checklist", async () => {
-    const nct = "NCT10000008";
-    mockFetchStudy(nct);
+    mockFetchStudy(NCT);
     bedrock.queue = [
       goodProse({ questions: [{ id: "evil", text: "Do you have asthma?", ruleOutIf: "yes", source_criterion: "x", kind: "exclusion" }] }),
     ];
-    const res = await POST(req({ nct, lang: "en" }));
+    const res = await POST(req({ nct: NCT, lang: "en" }));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.questions.some((q: { id: string }) => q.id === "evil")).toBe(false);
     expect(body.questions.some((q: { text: string }) => /asthma/i.test(q.text))).toBe(false);
+  });
+  it("a DIFFERENT nctId with the same criteria gets no free-text → 503 (study pin)", async () => {
+    // Same criteria text, but a study the mappings are NOT pinned to → only age_min (1) →
+    // below MIN_SUPPORTED_QUESTIONS → safe error → 503.
+    const other = "NCT10000001";
+    mockFetchStudy(other);
+    bedrock.queue = [goodProse()];
+    const res = await POST(req({ nct: other, lang: "en" }));
+    expect(res.status).toBe(503);
   });
   it("404 when the upstream has no study", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ studies: [] }), { status: 200 })));
@@ -187,29 +185,25 @@ describe("success", () => {
 });
 describe("retry + fallback bounds", () => {
   it("retries once on malformed prose, then succeeds on the second primary attempt", async () => {
-    const nct = "NCT10000003";
-    mockFetchStudy(nct);
+    mockFetchStudy(NCT);
     bedrock.queue = ["not json at all", goodProse()];
-    const res = await POST(req({ nct, lang: "en" }));
+    const res = await POST(req({ nct: NCT, lang: "en" }));
     expect(res.status).toBe(200);
     expect(bedrock.modelIds).toEqual(["primary-model", "primary-model"]);
   });
   it("schema-invalid JSON (valid JSON, missing required prose) retries then succeeds", async () => {
-    const nct = "NCT10000013";
-    mockFetchStudy(nct);
-    // Valid JSON object but missing whatYouDo/timeCommitment -> fails shape validation.
+    mockFetchStudy(NCT);
     const schemaInvalid = JSON.stringify({ summary: "A study." });
     bedrock.queue = [schemaInvalid, goodProse()];
-    const res = await POST(req({ nct, lang: "en" }));
+    const res = await POST(req({ nct: NCT, lang: "en" }));
     expect(res.status).toBe(200);
     expect(bedrock.modelIds).toEqual(["primary-model", "primary-model"]);
   });
   it("schema-invalid JSON on every attempt → 503 (never a partial body)", async () => {
-    const nct = "NCT10000014";
-    mockFetchStudy(nct);
+    mockFetchStudy(NCT);
     const schemaInvalid = JSON.stringify({ summary: "A study." });
     bedrock.queue = [schemaInvalid, schemaInvalid, schemaInvalid];
-    const res = await POST(req({ nct, lang: "en" }));
+    const res = await POST(req({ nct: NCT, lang: "en" }));
     expect(res.status).toBe(503);
     expect(bedrock.modelIds).toEqual(["primary-model", "primary-model", "fallback-model"]);
     const body = await res.json();
@@ -217,8 +211,7 @@ describe("retry + fallback bounds", () => {
     expect(body.questions).toBeUndefined();
   });
   it("a model that injects questions/kind/ruleOutIf alongside VALID prose still yields only server questions", async () => {
-    const nct = "NCT10000015";
-    mockFetchStudy(nct);
+    mockFetchStudy(NCT);
     bedrock.queue = [
       goodProse({
         questions: [
@@ -227,22 +220,20 @@ describe("retry + fallback bounds", () => {
         ],
       }),
     ];
-    const res = await POST(req({ nct, lang: "en" }));
+    const res = await POST(req({ nct: NCT, lang: "en" }));
     expect(res.status).toBe(200);
     const body = await res.json();
     const ids = body.questions.map((q: { id: string }) => q.id).sort();
     expect(ids).toEqual(["age_min", "hospice", "t1dm_exclusion", "t2dm_diagnosis"]);
-    // The injected wrong-polarity age and negated T2 never surface.
     const age = body.questions.find((q: { id: string }) => q.id === "age_min");
     expect(age.kind).toBe("inclusion");
     expect(age.ruleOutIf).toBe("no");
     expect(body.questions.some((q: { text: string }) => /\bnot\b/i.test(q.text))).toBe(false);
   });
   it("falls back to the fallback model exactly once, then 503 when all attempts are bad", async () => {
-    const nct = "NCT10000004";
-    mockFetchStudy(nct);
+    mockFetchStudy(NCT);
     bedrock.queue = ["bad1", "bad2", "bad3"];
-    const res = await POST(req({ nct, lang: "en" }));
+    const res = await POST(req({ nct: NCT, lang: "en" }));
     expect(res.status).toBe(503);
     expect(bedrock.modelIds).toEqual(["primary-model", "primary-model", "fallback-model"]);
     const body = await res.json();
@@ -251,54 +242,50 @@ describe("retry + fallback bounds", () => {
     expect(body.whatItStudies).toBeUndefined();
   });
   it("unsafe prose (forbidden phrase) exhausts attempts → 503", async () => {
-    const nct = "NCT10000009";
-    mockFetchStudy(nct);
+    mockFetchStudy(NCT);
     const unsafe = goodProse({ whatYouDo: "You qualify for this trial." });
     bedrock.queue = [unsafe, unsafe, unsafe];
-    const res = await POST(req({ nct, lang: "en" }));
+    const res = await POST(req({ nct: NCT, lang: "en" }));
     expect(res.status).toBe(503);
   });
 });
 describe("timeout", () => {
   it("503 when every Bedrock call aborts/times out", async () => {
-    const nct = "NCT10000005";
-    mockFetchStudy(nct);
+    mockFetchStudy(NCT);
     const aborter: SendBehavior = () =>
       new Promise<string>((_resolve, reject) => {
         reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
       });
     bedrock.queue = [aborter, aborter, aborter];
-    const res = await POST(req({ nct, lang: "en" }));
+    const res = await POST(req({ nct: NCT, lang: "en" }));
     expect(res.status).toBe(503);
     expect(bedrock.modelIds).toEqual(["primary-model", "primary-model", "fallback-model"]);
   });
 });
 describe("caching", () => {
   it("separates cache by language and does not re-invoke Bedrock on a repeat call", async () => {
-    const nct = "NCT10000006";
-    mockFetchStudy(nct);
+    mockFetchStudy(NCT);
     bedrock.queue = [goodProse()];
-    const en1 = await POST(req({ nct, lang: "en" }));
+    const en1 = await POST(req({ nct: NCT, lang: "en" }));
     expect(en1.status).toBe(200);
     const enCalls = bedrock.modelIds.length;
-    const en2 = await POST(req({ nct, lang: "en" }));
+    const en2 = await POST(req({ nct: NCT, lang: "en" }));
     expect(en2.status).toBe(200);
     expect(bedrock.modelIds.length).toBe(enCalls);
     // Spanish: English prose + Spanish prose translation.
     bedrock.queue = [goodProse(), goodProseEs()];
-    const es = await POST(req({ nct, lang: "es" }));
+    const es = await POST(req({ nct: NCT, lang: "es" }));
     expect(es.status).toBe(200);
     expect((await es.json()).lang).toBe("es");
     expect(bedrock.modelIds.length).toBeGreaterThan(enCalls);
   });
   it("does not cache a failure", async () => {
-    const nct = "NCT10000007";
-    mockFetchStudy(nct);
+    mockFetchStudy(NCT);
     bedrock.queue = ["bad", "bad", "bad"];
-    const fail = await POST(req({ nct, lang: "en" }));
+    const fail = await POST(req({ nct: NCT, lang: "en" }));
     expect(fail.status).toBe(503);
     bedrock.queue = [goodProse()];
-    const ok = await POST(req({ nct, lang: "en" }));
+    const ok = await POST(req({ nct: NCT, lang: "en" }));
     expect(ok.status).toBe(200);
   });
 });
@@ -307,10 +294,9 @@ describe("caching", () => {
 // ---------------------------------------------------------------------------
 describe("spanish localized checklist", () => {
   it("200 with es question wording and unchanged rule-out logic", async () => {
-    const nct = "NCT20000003";
-    mockFetchStudy(nct);
+    mockFetchStudy(NCT);
     bedrock.queue = [goodProse(), goodProseEs()];
-    const res = await POST(req({ nct, lang: "es" }));
+    const res = await POST(req({ nct: NCT, lang: "es" }));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.lang).toBe("es");
@@ -319,8 +305,7 @@ describe("spanish localized checklist", () => {
     expect(t2.ruleOutIf).toBe("no");
   });
   it("503 when the prose translation introduces a new number (invariant), after retries", async () => {
-    const nct = "NCT20000001";
-    mockFetchStudy(nct);
+    mockFetchStudy(NCT);
     const badEs = JSON.stringify({
       summary: "Estudio en Boston Medical Center sobre diabetes tipo 2. Participar es su elección.",
       whatYouDo: "Usted visita la clínica.",
@@ -328,7 +313,7 @@ describe("spanish localized checklist", () => {
       staff_checks: [],
     });
     bedrock.queue = [goodProse(), badEs, badEs, badEs];
-    const res = await POST(req({ nct, lang: "es" }));
+    const res = await POST(req({ nct: NCT, lang: "es" }));
     expect(res.status).toBe(503);
     expect(bedrock.modelIds).toEqual(["primary-model", "primary-model", "primary-model", "fallback-model"]);
     const body = await res.json();
@@ -341,10 +326,9 @@ describe("spanish localized checklist", () => {
 describe("unsupported checklist languages fail closed", () => {
   it("503 for pt/ht/zh/vi (valid lang param, but no deterministic question wording)", async () => {
     for (const lang of ["pt", "ht", "zh", "vi"]) {
-      const nct = `NCT3000000${["pt", "ht", "zh", "vi"].indexOf(lang)}`;
-      mockFetchStudy(nct);
+      mockFetchStudy(NCT);
       bedrock.queue = [goodProse(), goodProse(), goodProse()];
-      const res = await POST(req({ nct, lang }));
+      const res = await POST(req({ nct: NCT, lang }));
       expect(res.status).toBe(503);
     }
   });

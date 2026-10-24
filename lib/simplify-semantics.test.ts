@@ -1,12 +1,12 @@
-// Tests for the SEMANTIC BACKSTOP (lib/simplify-semantics.ts) under the DEFAULT-DENY
-// redesign. The checklist is now server-built; this module re-verifies those server
-// questions against the mapping registry + the study's real facts and FAILS CLOSED on any
-// disagreement. Pure functions, no Bedrock.
+// Tests for the SEMANTIC BACKSTOP (lib/simplify-semantics.ts) under the STUDY-PINNED,
+// HASH-GATED, EXACT-LINE rule. The checklist is server-built; this module re-verifies those
+// server questions with the SAME rule construction uses and FAILS CLOSED on any disagreement
+// — in particular it no longer accepts a free-text question whose source_criterion merely
+// CONTAINS the reviewed substring. Pure functions, no Bedrock.
 //
-// The three ORIGINAL production regressions (the saved live EN/ES outputs) and the three
-// REVIEW probes (/private/tmp/trialpath-semantic-review/lib/review-semantic-bypass.test.ts)
-// are kept PERMANENTLY here, adapted to the new design: each incorrect question is now
-// impossible to produce (unknown id) or rejected for a structural reason, never accepted.
+// The three ORIGINAL production regressions and the three REVIEW probes are kept here,
+// adapted: each incorrect question is impossible to produce (unknown id) or rejected for a
+// structural reason, never accepted.
 import { describe, expect, it } from "vitest";
 import {
   checkQuestionSemantics,
@@ -19,51 +19,29 @@ import {
 } from "./simplify-semantics";
 import type { SimplifyModel, SimplifyQuestion } from "./bedrock-types";
 import type { TrialDetail } from "./types";
+import {
+  HERO_CRITERIA,
+  T1_LINE,
+  T2_LINE,
+  HOSPICE_LINE,
+  heroDetail,
+  heroCriteriaWithHospice,
+} from "./test-fixtures/nct07043426";
 
-// Real NCT07043426 eligibility (verbatim).
-const NCT07043426_CRITERIA = [
-  "Inclusion Criteria:",
-  "",
-  "* Diagnosis: Must have a diagnosis of Type 2 Diabetes Mellitus (T2DM), confirmed by a current diagnosis in the medical record or at least two billing codes in the last two years, or an HbA1c level ≥6.5% in the last two years.",
-  "* Uncontrolled T2DM: Must have an HbA1c ≥9% at the time of screening.",
-  "* Health-Related Social Needs: Must have been screened for health related social needs (HRSNs) during a General Internal Medicine (GIM) visit in the last 3 months and screened positive for at least one HRSN.",
-  "",
-  "Exclusion Criteria:",
-  "",
-  "* Patients enrolled in Complex Care Management (CCM).",
-  "* Patients receiving hospice care.",
-  "* Patients who are deceased",
-  "* Patients with Type 1 Diabetes Mellitus (T1DM).",
-].join("\n");
+const NCT07043426_CRITERIA = HERO_CRITERIA;
 
 function detailWith(over: Partial<TrialDetail["eligibility"]> = {}): TrialDetail {
-  return {
-    nctId: "NCT07043426",
-    title: "THRIVE-DM",
-    conditions: ["Type 2 Diabetes"],
-    phase: null,
-    nearestSite: { name: "BMC", city: "Boston", lat: 0, lon: 0, locationPrecision: "facility" },
-    distanceMi: 0,
-    briefSummary: "A diabetes study at Boston Medical Center.",
-    eligibility: { minAgeYears: 18, maxAgeYears: null, sex: "ALL", healthyVolunteers: false, criteriaText: NCT07043426_CRITERIA, ...over },
-    sites: [],
-    contacts: [],
-    stops: [],
-  };
+  return heroDetail(over);
 }
 const DETAIL = detailWith();
 
 function model(questions: SimplifyQuestion[], staff_checks: string[] = []): SimplifyModel {
   return { summary: "s", whatYouDo: "w", timeCommitment: "t", questions, staff_checks };
 }
-// The exact verbatim registry lines the server extracts for the supported mappings.
-const T2_LINE =
-  "Diagnosis: Must have a diagnosis of Type 2 Diabetes Mellitus (T2DM), confirmed by a current diagnosis in the medical record or at least two billing codes in the last two years, or an HbA1c level ≥6.5% in the last two years.";
-const T1_LINE = "Patients with Type 1 Diabetes Mellitus (T1DM).";
-const HOSPICE_LINE = "Patients receiving hospice care.";
 const T2DM_DIAGNOSIS_QUOTE = T2_LINE;
 
-// The CORRECT server-built questions (what buildChecklist produces for the hero trial).
+// The CORRECT server-built questions (what buildChecklist produces for the hero trial). The
+// source_criterion is the ORIGINAL reviewed registry line (bullet stripped).
 const GOOD_AGE: SimplifyQuestion = { id: "age_min", text: "Are you at least 18 years old?", ruleOutIf: "no", source_criterion: "minimumAge = 18 years", kind: "inclusion" };
 const GOOD_T2: SimplifyQuestion = { id: "t2dm_diagnosis", text: "Do you have type 2 diabetes?", ruleOutIf: "no", source_criterion: T2_LINE, kind: "inclusion" };
 const GOOD_T1: SimplifyQuestion = { id: "t1dm_exclusion", text: "Do you have type 1 diabetes?", ruleOutIf: "yes", source_criterion: T1_LINE, kind: "exclusion" };
@@ -86,6 +64,40 @@ describe("backstop accepts the correct server-built hero checklist", () => {
 });
 
 // ---------------------------------------------------------------------------
+// FINAL-FIX backstop: study pin + hash + exact-line (the new, stronger gate).
+// ---------------------------------------------------------------------------
+describe("backstop gates free-text with study-pin + hash + exact-line", () => {
+  it("rejects a hospice question whose source_criterion is the NEGATED altered line", () => {
+    const altered: SimplifyQuestion = { ...GOOD_HOSPICE, source_criterion: "Patients not currently receiving hospice care." };
+    expect(checkQuestionSemantics(model([altered]), DETAIL, "en")).not.toBeNull();
+  });
+  it("rejects a hospice question whose source_criterion has an extra clause", () => {
+    const altered: SimplifyQuestion = { ...GOOD_HOSPICE, source_criterion: "Patients receiving hospice care or palliative care." };
+    expect(checkQuestionSemantics(model([altered]), DETAIL, "en")).not.toBeNull();
+  });
+  it("rejects a question for the WRONG study (nctId not the pinned study)", () => {
+    const d = { ...DETAIL, nctId: "NCT99999999" };
+    expect(checkQuestionSemantics(model([GOOD_T2]), d, "en")).not.toBeNull();
+  });
+  it("rejects when the study's criteria hash no longer matches (registry revised)", () => {
+    // Keep the three reviewed lines verbatim but edit an UNRELATED line → hash changes.
+    const revised = HERO_CRITERIA.replace(
+      "* Patients who are deceased",
+      "* Patients who are deceased or incarcerated",
+    );
+    const d = detailWith({ criteriaText: revised });
+    // Even though the hospice/T1/T2 lines are untouched and present, the hash mismatch makes
+    // every free-text question invalid.
+    expect(checkQuestionSemantics(model([GOOD_HOSPICE]), d, "en")).not.toBeNull();
+  });
+  it("rejects a hospice question when the hospice line itself was replaced (hash + exact-line)", () => {
+    const revised = heroCriteriaWithHospice("Patients receiving hospice care or palliative care.");
+    const d = detailWith({ criteriaText: revised });
+    expect(checkQuestionSemantics(model([GOOD_HOSPICE]), d, "en")).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // ORIGINAL production regressions (the saved live outputs) — must FAIL CLOSED.
 // ---------------------------------------------------------------------------
 describe("live NCT07043426 defects are rejected (fail closed)", () => {
@@ -101,13 +113,13 @@ describe("live NCT07043426 defects are rejected (fail closed)", () => {
     const q: SimplifyQuestion = { id: "ccm_enrollment", text: "Are you enrolled in Complex Care Management?", ruleOutIf: "yes", source_criterion: "Patients enrolled in Complex Care Management (CCM).", kind: "exclusion" };
     const err = checkQuestionSemantics(model([q]), DETAIL, "en");
     expect(err).not.toBeNull();
-    expect(err).toMatch(/staff-only|staff_checks/i);
+    expect(err).toMatch(/staff-only|staff_checks|unknown/i);
   });
   it("DEFECT 4: an HbA1c >=9% lab-threshold asked directly (word form) is rejected (staff-only)", () => {
     const q: SimplifyQuestion = { id: "a1c", text: "Is your A1c 9 percent or higher?", ruleOutIf: "no", source_criterion: "Must have an HbA1c ≥9% at the time of screening.", kind: "inclusion" };
     const err = checkQuestionSemantics(model([q]), DETAIL, "en");
     expect(err).not.toBeNull();
-    expect(err).toMatch(/staff-only|staff_checks/i);
+    expect(err).toMatch(/staff-only|staff_checks|unknown/i);
   });
 });
 
@@ -116,9 +128,7 @@ describe("live NCT07043426 defects are rejected (fail closed)", () => {
 // ---------------------------------------------------------------------------
 describe("review probes: structurally impossible / rejected under default-deny", () => {
   it("PROBE 1: asthma subject grounded in diabetes evidence is rejected (unknown mapping id)", () => {
-    // There is no asthma mapping, so an asthma question can only arrive with a non-mapping id
-    // (rejected) or wearing a diabetes mapping id with the wrong text (rejected: text mismatch).
-    const unknownId: SimplifyQuestion = { id: "asthma", text: "Do you have asthma?", ruleOutIf: "no", source_criterion: "Must have a diagnosis of Type 2 Diabetes Mellitus (T2DM)", kind: "inclusion" };
+    const unknownId: SimplifyQuestion = { id: "asthma", text: "Do you have asthma?", ruleOutIf: "no", source_criterion: T2_LINE, kind: "inclusion" };
     expect(checkQuestionSemantics(model([unknownId]), DETAIL, "en")).not.toBeNull();
     const wearingT2Id: SimplifyQuestion = { ...GOOD_T2, text: "Do you have asthma?" };
     expect(checkQuestionSemantics(model([wearingT2Id]), DETAIL, "en")).not.toBeNull();
@@ -166,7 +176,7 @@ describe("age polarity + bounds coverage", () => {
   it("rejects an age question whose value does not match the study's bound", () => {
     expect(checkQuestionSemantics(model([{ ...GOOD_AGE, text: "Are you at least 21 years old?", source_criterion: "minimumAge = 21 years" }]), DETAIL, "en")).not.toBeNull();
   });
-  it("accepts a correct max-age question when the study has a max bound", () => {
+  it("accepts a correct max-age question when the study has a max bound (hash still matches)", () => {
     const d = detailWith({ minAgeYears: null, maxAgeYears: 65 });
     const q: SimplifyQuestion = { id: "age_max", text: "Are you 65 years old or younger?", ruleOutIf: "no", source_criterion: "maximumAge = 65 years", kind: "inclusion" };
     expect(checkQuestionSemantics(model([q, { ...GOOD_T2 }, GOOD_T1]), d, "en")).toBeNull();
@@ -179,7 +189,7 @@ describe("age polarity + bounds coverage", () => {
 });
 
 describe("ambiguous / missing section headings never default to inclusion", () => {
-  it("rejects a free-text question when there are no headings (polarity unknown)", () => {
+  it("rejects a free-text question when there are no headings (hash + section unknown)", () => {
     const d = detailWith({ criteriaText: "Must have a diagnosis of Type 2 Diabetes Mellitus (T2DM). Patients with Type 1 Diabetes Mellitus (T1DM)." });
     expect(checkQuestionSemantics(model([GOOD_T2]), d, "en")).not.toBeNull();
   });
@@ -202,7 +212,7 @@ describe("unsupported language for questions fails closed", () => {
 // Low-level helpers.
 // ---------------------------------------------------------------------------
 describe("helpers", () => {
-  it("evidencePolarity resolves sections and is unknown off-section", () => {
+  it("evidencePolarity resolves sections and is unknown off-section (diagnostic helper)", () => {
     expect(evidencePolarity(T2_LINE, NCT07043426_CRITERIA)).toBe("inclusion");
     expect(evidencePolarity(T1_LINE, NCT07043426_CRITERIA)).toBe("exclusion");
     expect(evidencePolarity("not in the text at all", NCT07043426_CRITERIA)).toBe("unknown");
