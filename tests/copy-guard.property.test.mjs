@@ -96,4 +96,22 @@ describe("forbidden-phrase checker properties", () => {
       }),
     );
   });
+
+  // Vietnamese is now a scanned language (safety.md §1). These phrases are machine-drafted and
+  // NEED REVIEW by a Vietnamese speaker; the test only asserts the checker tags them as vi.
+  it("detects each Vietnamese forbidden phrase and tags it lang=vi", () => {
+    const viPhrases = ALL_FORBIDDEN.filter((f) => f.lang === "vi").map((f) => f.phrase);
+    expect(viPhrases.length).toBeGreaterThan(0);
+    const prefixArb = fc.string();
+    const suffixArb = fc.string();
+    for (const phrase of viPhrases) {
+      fc.assert(
+        fc.property(prefixArb, suffixArb, (prefix, suffix) => {
+          const hit = findForbiddenPhrase(prefix + phrase + suffix);
+          expect(hit).not.toBeNull();
+          expect(hit.lang).toBe("vi");
+        }),
+      );
+    }
+  });
 });

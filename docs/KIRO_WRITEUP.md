@@ -1,8 +1,9 @@
 # How we used Kiro — TrialPath MA
 
-This write-up is sourced **only** from `KIRO_LOG.md` and the files in `.kiro/`. Where the log does
-not support a claim, it is marked **TODO** rather than asserted. Honest caveats from the log are
-kept in place — they matter more than a polished story.
+This write-up is grounded in `KIRO_LOG.md`, `docs/TASKS.md`, and the files in `.kiro/`, plus the
+state of the merged `main` branch. Claims cite their source. Where something genuinely hasn't been
+done or observed yet, it is marked **TODO** rather than asserted. Honest caveats are kept in place —
+they matter more than a polished story.
 
 ---
 
@@ -10,20 +11,28 @@ kept in place — they matter more than a polished story.
 
 We used Kiro across more than one surface, and the log is explicit about which did what:
 
-- **Kiro Web** — the earlier sessions ran here. The log notes that Web "does NOT execute
-  event-driven hooks," so hook firing could not be observed there; the hook JSON authored in Web
-  also used an invalid `FileSave` trigger that the IDE did not load.
-- **Kiro IDE** — a later session re-created the hooks through the IDE's Create Hook tool so they
-  register in the Agent Hooks panel (with the valid `PostFileSave` trigger), and ran the MCP
-  `fetch` probes and the Context7 Power. Per the IDE Output log, 3 of 3 hooks registered once the
-  workspace was trusted.
-- **Kiro CLI** — **TODO.** The log mentions the IDE's `/hooks` panel as a place to verify hooks,
-  but records no actual Kiro CLI session.
-- **Kiro Crew** — **TODO.** The "Kiro tools / Crew / Powers" section of the log contains hook and
-  Powers entries but **no Crew run** (e.g. no parallel spec-task execution). We make no Crew claim.
+- **Kiro Web** — the earlier session ran here. It authored the **steering** and **hooks**. The log
+  notes that Web "does NOT execute event-driven hooks," so hook firing could not be observed there;
+  the hook JSON authored in Web also used an invalid `FileSave` trigger that the IDE did not load.
+- **Kiro IDE** — the later session. It authored the **specs**, the **property tests**, the **MCP
+  `fetch` probes**, the **Context7 Power** review, and the **CLI run** below, and re-created the
+  hooks through the Create Hook tool so they register in the Agent Hooks panel (with the valid
+  `PostFileSave` trigger). Per the IDE Output log, 3 of 3 hooks registered once the workspace was
+  trusted.
+- **Kiro CLI** — used. The CLI is `kiro-cli.exe` (installer-reported version **2.34.0**, installed
+  under `AppData\Local\kiro-cli`). Given the prompt "Run `npx vitest run` and summarize which tests
+  fail and why. Don't edit any files," it ran the command, read `lib/i18n/i18n.test.ts` and
+  `lib/i18n/dictionaries.ts`, made **no edits**, and finished in **23 seconds**. **Historical
+  result at that time: 62 tests, 57 passed and 5 failed** — all 5 were the "`<lang> has every key`"
+  completeness test, because the non-English translation dictionaries were still empty `{}`. **That
+  cause is fixed on `main`** (the dictionaries are filled), so those 5 failures no longer apply —
+  see the integrated snapshot in "Still pending." The `kiro` command is a different binary: the
+  **IDE launcher** (`kiro --version` → 1.4.26), not the agentic `kiro-cli.exe`.
+- **Kiro Crew** — **TODO.** The log records **no Crew run** (no parallel spec-task execution). We
+  make no Crew claim.
 
-> Honest note: the log's clearest tool caveat is that hook execution was verified by running the
-> backing scripts as the hook would, **not** by observing the IDE fire a hook on a real save.
+The CLI run's 5 failures were the empty non-English dictionaries; those dictionaries are now filled
+and the merged `main` suite is green (see "Integrated snapshot & attribution").
 
 ---
 
@@ -34,13 +43,14 @@ each spec grounded in the code that already exists rather than an idealized desi
 
 Specs in `.kiro/specs/` (confirmed present):
 
-- **fit-check** — EARS **requirements only**, grounded in `lib/quickCheck.ts`,
-  `lib/quickCheck.test.ts`, `components/QuickCheck.tsx`, `components/FitResult.tsx`, and
-  `safety.md`. Outcomes were pinned to the two values the code actually returns today
-  (`possible-fit` / `ask-team`) and the real `FitReason.kind` set. The spec also recorded a
-  **finding + decision**: `quickCheck` returns `possible-fit` for empty criteria with no questions,
-  which should be the cautious `ask-team`; the fix (a distinct `insufficient-info` reason) was
-  drafted as a "Proposed change for the owner" and left for the file owner, not applied.
+- **fit-check** — EARS **requirements + design + tasks** (`.kiro/specs/fit-check/` on `main` has
+  all three), grounded in `lib/quickCheck.ts`, `lib/quickCheck.test.ts`, `components/QuickCheck.tsx`,
+  `components/FitResult.tsx`, and `safety.md`. Outcomes were pinned to the two values the code
+  actually returns today (`possible-fit` / `ask-team`) and the real `FitReason.kind` set. The spec
+  also recorded a **finding + decision**: `quickCheck` returns `possible-fit` for empty criteria
+  with no questions, which should be the cautious `ask-team`; the fix (a distinct `insufficient-info`
+  reason) was drafted as a "Proposed change for the owner" and left for the file owner. Per
+  `docs/TASKS.md`, that cautious `quickCheck` fallback is Neil's and is still pending.
 - **getting-there** — EARS **requirements + design + tasks**. **12 tasks the existing code already
   satisfies** were marked done with the file that satisfies each; **5 known gaps** (G1–G5,
   including "the MBTA fetch does not exist on `main`") were catalogued with owner drafts in the
@@ -48,11 +58,21 @@ Specs in `.kiro/specs/` (confirmed present):
 - **translation** — EARS **requirements + design + tasks**. 9 requirements; satisfied-today
   behaviors marked inline (e.g. `parseSimplified` normalizes/rejects payloads and carries `lang`
   through; `findForbiddenPhrase` already covers es/pt/ht/zh; `getDictionary` English fallback;
-  `HTML_LANG` uses `zh-Hans`). Known gaps marked inline: no translation call, no
-  `(NCT id, language)` cache, no machine-translated flag, the forbidden-phrase gate not wired to
-  translation output, and empty `dictionaries.ts` maps. Owner drafts live inside the design only.
+  `HTML_LANG` uses `zh-Hans`). Gaps the spec recorded **at the time it was written**: no translation
+  call, no `(NCT id, language)` cache, no machine-translated flag, the forbidden-phrase gate not
+  wired to translation output, and empty `dictionaries.ts` maps. (The empty-dictionaries gap has
+  since been closed on `main`.) Owner drafts live inside the design only.
 
-The pattern across all three: **spec-driven, grounded, and honest about gaps** — each spec
+All three — **fit-check, getting-there, and translation — were written in the Kiro IDE.**
+getting-there's earlier version is preserved on `main` under
+`.kiro/specs/getting-there/planning-reference/` (added by Hasan's merge, per `KIRO_LOG.md`).
+
+A fourth spec, **`.kiro/specs/trialpath-ui/`, is a retrospective spec written in Codex, not Kiro**
+— `KIRO_LOG.md` states it was "prepared retrospectively in Codex" and is "**review documentation,
+not proof of Kiro-authored spec-first development**." We do not count it as evidence of spec-first
+Kiro development.
+
+The pattern across the three Kiro specs: **spec-driven, grounded, and honest about gaps** — each
 separates "what the code does today" from "what's proposed," and defers owner-file edits to a PR.
 
 Vibe coding: **TODO.** The log does not attribute specific feature code to an unstructured
@@ -65,11 +85,13 @@ safety-critical features."
 
 Three agent hooks live in `.kiro/hooks/` (all parse as `version: v1`):
 
-- **Copy guard** — `PostFileSave`, matcher `(lib/i18n/.*\.ts$|components/.*\.(tsx|ts)$|app/.*\.tsx$)`,
-  runs `tests/copy-guard.mjs` on the saved file. It flags forbidden eligibility phrases in
-  EN/ES/PT/HT/ZH and English copy above an 8th-grade reading level. It grades only real sentences
-  (≥ 8 words, ends in punctuation) to avoid false positives on short UI labels, has a Tailwind/CSS
-  heuristic so `className` strings aren't graded, and exempts the fixed §4 disclaimer.
+- **Copy guard** — `PostFileSave`, matcher
+  `(lib[\\/]i18n[\\/].*\.ts$|components[\\/].*\.(tsx|ts)$|app[\\/].*\.tsx$)` (the `[\\/]` accepts
+  both forward- and back-slash path styles), running `node tests/copy-guard.mjs` on the saved file.
+  It flags forbidden eligibility phrases in **EN/ES/PT/HT/ZH/VI** and English copy above an
+  8th-grade reading level. It grades only real sentences (≥ 8 words, ends in punctuation) to avoid
+  false positives on short UI labels, has a Tailwind/CSS heuristic so `className` strings aren't
+  graded, and exempts the fixed §4 disclaimer.
 - **Test on save** — `PostFileSave`, matcher `(lib|tests)/.*\.ts$`, runs `npm test` (Vitest,
   `vitest run`, no watch).
 - **Update docs** — a **Manual** hook that documents intent and lists in the panel; because v1 has
@@ -79,6 +101,10 @@ Three agent hooks live in `.kiro/hooks/` (all parse as `version: v1`):
 
 What the log shows the hooks catching / doing:
 
+- The IDE showed **"Run Command Hook: Test on save" triggered automatically when the agent wrote
+  `tests/scratch-scan-count.test.ts`**, and **"Run Command Hook: Copy guard" triggered when the
+  agent wrote `components/_hooktest.tsx`.** These were **agent file writes, not manual saves**, and
+  the **hook output panel text was not captured**.
 - Copy guard flagged a scratch file containing "you qualify for this trial" (`[forbidden:en]`,
   exit 2) and the Spanish "usted califica"; the scratch files were reverted/deleted and the tree
   left clean.
@@ -86,13 +112,19 @@ What the log shows the hooks catching / doing:
   `results.tryWider` at reading grade 8.4 — which was flagged to the i18n owner rather than edited.
 - A **silent-pass bug** (the script exited 0 when invoked with no file args) was found and fixed so
   it now default-scans `lib/i18n/`, `components/`, and `app/**/*.tsx` and never passes silently.
+  This Copy guard work merged into `main` via **PR #13** (`akash/kiro`, merge commit `6c5a83a`, per
+  `KIRO_LOG.md`).
 
-> **Honest note — hook firing was never confirmed on a real save.** The log is repeated and
-> explicit: hook behavior was verified by running each hook's exact `action.command` against a
-> test file (command-equivalence), **not** by observing the Kiro IDE trigger the hook on an actual
-> file save. It remains **TODO** to save a matching file in the IDE, watch the Agent Hooks panel
-> fire, and screenshot it for the demo. Also noted: `npm test`/`vitest run` currently shows 5
-> pre-existing i18n dictionary-key failures, unrelated to the hooks.
+The **manual `/update-docs` steering command is distinct from these hooks** — it is a
+manual-inclusion command (`.kiro/steering/update-docs.md`), not a `PostFileSave` hook. The
+`update-docs.json` hook file exists only to document intent and list in the panel; v1 has no
+runnable manual hook trigger.
+
+> **Honest note — scope of what was observed.** The IDE showed both hooks trigger on **agent file
+> writes**; a **manual-save trigger was not separately observed**, and the **hook output panel text
+> was not captured**. Earlier in the log, hook behavior was also verified by running each hook's
+> exact `action.command` against a test file (command-equivalence). It remains a real **TODO** to
+> observe a manual on-save fire with captured panel output and screenshot it for the demo.
 
 ---
 
@@ -102,9 +134,13 @@ What the log shows the hooks catching / doing:
 `product.md`, `tech.md`, `structure.md`, plus the manual `update-docs.md`):
 
 - **safety.md** — the non-negotiables every other doc references: never claim eligibility (with a
-  multilingual forbidden-phrase list), ≤ 8th-grade reading level, health answers stay in the
-  browser, always show contact + disclaimer, and preserve NCT IDs / phone numbers / emails verbatim
-  in translation. Generated copy and code inherit these guardrails.
+  multilingual forbidden-phrase list — EN/ES/PT/HT/ZH, plus VI below), ≤ 8th-grade reading level,
+  health answers stay in the browser, always show contact + disclaimer, and preserve NCT IDs /
+  phone numbers / emails verbatim in translation. Generated copy and code inherit these guardrails.
+  - **Vietnamese forbidden phrases.** Five VI equivalents were added to `safety.md` §1 (and to
+    `tests/copy-guard.mjs`) before `vi` ships: "bạn đủ điều kiện", "bạn đủ tiêu chuẩn", "bạn phù
+    hợp", "bạn đáp ứng các tiêu chí", "được bảo đảm". Per `KIRO_LOG.md`, these are
+    **machine-drafted and still need review by a Vietnamese speaker** — they are not verified.
 - **tech.md** — the decided stack, including Bedrock set to **Nova 2 Lite**
   (`us.amazon.nova-2-lite-v1:0`) with **Nova Pro** fallback (`us.amazon.nova-pro-v1:0`), region
   us-east-2, a note that Claude is unavailable on the AWS Free plan, and the Vercel env var names.
@@ -148,19 +184,20 @@ the IDE** to confirm field shapes before any parser was written:
 
 ## 6. Property-based testing (fast-check)
 
-The log records **15 fast-check properties across two files, all passing**:
+The log records **16 fast-check properties across two files, all passing** (15 initially, plus one
+added with the Vietnamese work):
 
 - `tests/safety.property.test.ts` (9 properties): `haversineMi` symmetric / non-negative / zero for
   identical points; `quickCheck` outcome always in the allowed set and out-of-range age →
   `ask-team`; empty/malformed eligibility text never throws and never fabricates an outcome; and a
-  forbidden-phrase scan over shipped i18n + mock fixtures (no safety.md phrase in any language, no
-  bare "eligible"/"qualify" outside the mandated §4 disclaimer, plus a guard that fails on an empty
-  scan).
-- `tests/copy-guard.property.test.mjs` (6 properties) over the pure functions exported from
+  forbidden-phrase scan over shipped i18n + mock fixtures (now including the `vi` dictionary and
+  fixtures — no safety.md phrase in any language, no bare "eligible"/"qualify" outside the mandated
+  §4 disclaimer, plus a guard that fails on an empty scan).
+- `tests/copy-guard.property.test.mjs` (7 properties) over the pure functions exported from
   `tests/copy-guard.mjs`: `readingGrade` is deterministic and finite and never throws on any string
   (empty, whitespace, Chinese, 2k–5k chars); the forbidden-phrase checker never throws on arbitrary
-  Unicode; and appending any forbidden phrase to any string always flags it regardless of
-  surrounding casing/whitespace.
+  Unicode; appending any forbidden phrase to any string always flags it regardless of surrounding
+  casing/whitespace; and each Vietnamese phrase is detected and tagged `lang="vi"`.
 
 Findings the properties surfaced (about the code shape, not property failures):
 
@@ -168,9 +205,11 @@ Findings the properties surfaced (about the code shape, not property failures):
   `main`, so the guard's own `readingGrade` (in `tests/`) was exported and tested instead.
 - The steering docs describe three `quickCheck` outcomes (`possible-fit` / `may-rule-out` /
   `not-sure`), but the real code returns only `possible-fit` / `ask-team`; tests were written
-  against the **real two-outcome contract**.
+  against the **real two-outcome contract**. This two-vs-three mismatch is an **open decision still
+  to be settled with the team** — do the steering docs come down to two outcomes, or does the code
+  grow a third? Until that's resolved, the tests follow the code.
 
-> **Honest note — no property failed.** The log is explicit: all 15 passed and **no counterexample
+> **Honest note — no property failed.** The log is explicit: all 16 passed and **no counterexample
 > was found.** The properties document and lock in today's real behavior and catch no-throw /
 > safety invariants; they did **not** catch a live bug in this run. We don't claim otherwise.
 
@@ -199,18 +238,57 @@ fast-check ^4.10.2). The log records 6 real calls that reviewed:
 
 ---
 
+## Integrated snapshot & attribution
+
+The integrated `main` snapshot is **178 tests passing** (per `KIRO_LOG.md`, after merging `main`
+into `akash/kiro`, `npx vitest run` → 14 files / 178 tests, all passing; `node tests/copy-guard.mjs`
+over the six dictionaries → no violations). With the Vietnamese additions the suite is **179 tests
+passing**. The empty-dictionaries cause of the earlier CLI-run failures is fixed, so the "5 failing"
+and "empty dictionaries" statuses are historical, not current.
+
+**PR attribution.** PR merges are performed from the **`hasaninan18`** GitHub account, per
+`docs/TASKS.md` (e.g. PR #13, `akash/kiro` → `main`, merge commit `6c5a83a`). That is the merge
+mechanic only — it does not change who did the underlying work.
+
+---
+
+## Still pending
+
+Per `docs/TASKS.md` on `main`. None of the following is claimed complete:
+
+- **Hasan — simplify route.** Finishing the `/api/simplify` route: source-evidence and age
+  validation, plus real English and Spanish verification.
+- **Neil — cautious fallback + frontend QA.** Owns the cautious `quickCheck` fallback (the
+  `insufficient-info` reason drafted in the fit-check spec) and the remaining frontend QA.
+
+---
+
 ## Honest-notes summary
 
 Kept front-and-center because they're the truthful version of the story:
 
-1. **Hooks firing on a real save was never confirmed** — verified by command-equivalence only; a
-   real IDE on-save fire + Agent Hooks panel screenshot is still **TODO**.
-2. **No property failed** — all 15 fast-check properties passed; no counterexample found. They lock
+1. **Hook firing on a real save was never confirmed.** The IDE showed both hooks trigger on **agent
+   file writes**, but a **manual-save trigger was not separately observed** and the **hook output
+   panel text was not captured**. A real manual on-save fire + panel screenshot is still **TODO**.
+2. **No property failed** — all 16 fast-check properties passed; no counterexample found. They lock
    in existing behavior rather than having caught a live bug this run.
 3. **Context7 found no problems** — the Powers review confirmed our conventions and changed no code.
 4. **fetch MCP was blocked by robots.txt** on ClinicalTrials.gov until `--ignore-robots-txt` was
    added **and** the fetch server restarted.
+5. **Kiro CLI ran** (`npx vitest run`, no edits, 23s) and reported 62 tests / 57 passed / 5 failed
+   **at that time**; those 5 (empty dictionaries) are fixed on `main` (now 178 / 179 passing).
+6. **`trialpath-ui` is a Codex retrospective spec**, not evidence of spec-first Kiro development.
+7. **Vietnamese forbidden phrases are machine-drafted** and still need review by a Vietnamese
+   speaker before `vi` ships.
 
-Unresolved **TODO**s for a complete write-up: confirm whether **Kiro CLI** and **Kiro Crew** were
-used (no log evidence), identify any genuinely **vibe-coded** work, and capture the demo
-screenshots the log asks for (hook firing, Agent Hooks panel).
+### Remaining real TODOs
+
+- **Kiro Crew** — no Crew run exists in the log; we make no Crew claim.
+- **Vibe coding** — the log attributes no specific feature code to an unstructured ("vibe") Kiro
+  session, so we claim no vibe-vs-spec split beyond "specs covered the safety-critical features."
+- **A manual-save hook observation with captured panel output** — hooks were seen firing on agent
+  file writes, but a manual on-save fire with the panel text captured (and a demo screenshot)
+  hasn't been done.
+- **Vietnamese phrase review** — the five VI forbidden phrases need a Vietnamese speaker's sign-off
+  before `vi` ships.
+- **The two-vs-three `quickCheck` outcome mismatch** — an open decision to settle with the team.
