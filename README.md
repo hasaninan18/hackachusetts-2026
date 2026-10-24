@@ -30,6 +30,32 @@ _TBD_
 - Video (<3 min): _TBD_
 
 ## How we used Kiro
-_Specs, steering, hooks, MCP, property-based tests, powers, Kiro tools used (IDE / CLI / Web / Crew)._
+
+Full detail: **[docs/KIRO_WRITEUP.md](docs/KIRO_WRITEUP.md)**. Every claim below is drawn from
+`KIRO_LOG.md` and the files in `.kiro/`.
+
+- **Kiro tools (IDE, CLI, Web, Crew).** We worked across sessions: an early **Kiro Web** session
+  authored steering, specs, hooks, and the property tests, and a later **Kiro IDE** session
+  re-created the hooks (Web had written an invalid trigger name) and ran the MCP and Powers work.
+  _TODO: confirm whether Kiro CLI or Crew were used — the log records no CLI or Crew runs._
+- **Spec-driven vs vibe coding.** Three features are spec-driven with EARS requirements:
+  **fit-check** (requirements only), **getting-there** (requirements + design + tasks), and
+  **translation** (requirements + design + tasks). Each spec is grounded in the code that exists
+  and marks satisfied tasks vs. known gaps instead of inventing behavior.
+- **Hooks.** Three agent hooks in `.kiro/hooks/`: **Copy guard** and **Test on save**
+  (`PostFileSave`) and a **Update docs** manual hook (paired with a `/update-docs` steering
+  command). The backing scripts work when run by hand; **we never confirmed a hook firing on a
+  real save in the IDE.**
+- **Steering.** `.kiro/steering/{safety,product,tech,structure}.md` encode the non-negotiables
+  (never claim eligibility, ≤ 8th-grade copy, privacy, verbatim identifiers) that every spec and
+  generated file inherits, plus the `/update-docs` manual command.
+- **MCP.** The `fetch` MCP server (`uvx mcp-server-fetch`) probed MBTA V3 and ClinicalTrials.gov
+  v2 live to confirm real field shapes before writing parsers. CT.gov was **blocked by robots.txt**
+  until `--ignore-robots-txt` was added and the server restarted.
+- **Property-based testing (fast-check).** 15 properties across two files, all passing — **no
+  property failed and no counterexample was found.** They document today's real contracts (e.g.
+  `quickCheck` returns `possible-fit` / `ask-team`).
+- **Powers.** Used the **Context7** Power to check `proxy.ts`, the `[lang]` routing, and the
+  fast-check usage against current docs for the installed versions. **Context7 found no problems.**
 
 > TrialPath is not medical advice. The study team decides eligibility.
