@@ -47,7 +47,7 @@ const SOURCE_HASH = sourceHash(toDetail(rawStudy()));
 function entry(over: Partial<CachedTranslation> = {}): CachedTranslation {
   const { title, ...prose } = SPANISH;
   return {
-    v: 2,
+    v: 3,
     nctId: NCT,
     lang: "es",
     criteriaHash: HASH,
@@ -107,7 +107,7 @@ describe("simplifyTrial + shared cache", () => {
   });
 
   it("the key includes nctId, lang and the criteria-revision hash", () => {
-    expect(simplifyCacheKey(NCT, "es", HASH)).toBe(`simplify:v2:${NCT}:es:${HASH}`);
+    expect(simplifyCacheKey(NCT, "es", HASH)).toBe(`simplify:v3:${NCT}:es:${HASH}`);
     expect(simplifyCacheKey(NCT, "es", HASH)).not.toBe(simplifyCacheKey(NCT, "pt", HASH));
     expect(simplifyCacheKey(NCT, "es", HASH)).not.toBe(simplifyCacheKey(NCT, "es", "other-hash"));
   });
@@ -142,7 +142,7 @@ describe("simplifyTrial + shared cache", () => {
     expect(result.body.questions.map((q) => q.id).sort()).toEqual(HERO_IDS);
     const es = cache.store.get(simplifyCacheKey(NCT, "es", HASH)) as CachedTranslation;
     const en = cache.store.get(simplifyCacheKey(NCT, "en", HASH)) as CachedTranslation;
-    expect(es).toMatchObject({ v: 2, nctId: NCT, lang: "es", criteriaHash: HASH, sourceHash: SOURCE_HASH, title: SPANISH.title });
+    expect(es).toMatchObject({ v: 3, nctId: NCT, lang: "es", criteriaHash: HASH, sourceHash: SOURCE_HASH, title: SPANISH.title });
     expect(en).toMatchObject({ lang: "en", title: "THRIVE-DM at BMC", prose: ENGLISH });
     expect(es).not.toHaveProperty("questions");
     expect(en).not.toHaveProperty("questions");
