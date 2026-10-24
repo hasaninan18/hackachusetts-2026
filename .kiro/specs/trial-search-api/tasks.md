@@ -46,7 +46,7 @@ lists the requirements it satisfies.
   - Upstream failure → `502`/`504` JSON `ApiError`, serving a fresh cache entry if available.
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 6.*_
 
-- [ ] 8. Implement `GET /api/trials/[nct]` in `app/api/trials/[nct]/route.ts`
+- [x] 8. Implement `GET /api/trials/[nct]` in `app/api/trials/[nct]/route.ts`
   - `buildDetailUrl` → cached fetch; `404` JSON if no study; else `toDetail(study, origin?)` (distance 0 + first corrected site when no lat/lon), respond `TrialDetail` JSON with `stops: []`.
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 6.*_
 
