@@ -39,8 +39,8 @@ const NCT = "NCT07043426";
 const hero = { ...getMockTrial(NCT)!, outcomes: { status: "not-checked" } };
 
 const TRANSLATED_TITLE = "Programa THRIVE-DM para la diabetes tipo 2 en Boston Medical Center";
-const TRANSLATED_SUMMARY =
-  "Este estudio en Boston Medical Center ayuda a personas con diabetes tipo 2. Participar es su elección.";
+// Short sentences: copy-guard grades every string in app/**/*.tsx, tests included.
+const TRANSLATED_SUMMARY = "Es un estudio sobre la diabetes tipo 2. Usted decide si quiere estar en él.";
 
 function okBody(): SimplifyServiceResult {
   return {
