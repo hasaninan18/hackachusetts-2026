@@ -4,7 +4,7 @@
     {
       "name": "Copy guard",
       "trigger": "PostFileSave",
-      "description": "When user-facing copy is saved (lib/i18n/*.ts, components/*.tsx|ts, or app/**/*.tsx), run copy-guard: flags forbidden eligibility phrases (EN + ES + PT + HT + ZH) and English copy above an 8th-grade reading level.",
+      "description": "When user-facing copy is saved (lib/i18n/*.ts, components/*.tsx|ts, or app/**/*.tsx), run copy-guard: flags forbidden eligibility phrases (EN + ES + PT + HT + ZH + VI) and English copy above an 8th-grade reading level.",
       "matcher": "(lib[\\\\/]i18n[\\\\/].*\\.ts$|components[\\\\/].*\\.(tsx|ts)$|app[\\\\/].*\\.tsx$)",
       "action": {
         "type": "command",

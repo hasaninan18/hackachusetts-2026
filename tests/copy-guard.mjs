@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // copy-guard: enforces .kiro/steering/safety.md on user-facing copy.
-// 1) Flags forbidden phrases (EN + ES + PT + HT + ZH) in any string literal.
+// 1) Flags forbidden phrases (EN + ES + PT + HT + ZH + VI) in any string literal.
 // 2) Flags English copy above an 8th-grade reading level (Flesch–Kincaid).
 //
 // Usage:
@@ -24,6 +24,8 @@ const FORBIDDEN = {
   pt: ["você se qualifica", "você é elegível", "atende aos critérios", "voce se qualifica"],
   ht: ["ou kalifye", "ou elijib"],
   zh: ["您符合条件", "您符合资格", "您合格"],
+  // Vietnamese: needs review by a Vietnamese speaker (machine-drafted, not verified).
+  vi: ["bạn đủ điều kiện", "bạn đủ tiêu chuẩn", "bạn phù hợp", "bạn đáp ứng các tiêu chí", "được bảo đảm"],
 };
 export const ALL_FORBIDDEN = Object.entries(FORBIDDEN).flatMap(([lang, arr]) =>
   arr.map((p) => ({ lang, phrase: p }))
