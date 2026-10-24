@@ -11,6 +11,9 @@ dist/
 build/
 .next/
 
+# Copy guard hook run log (local only — never commit)
+tests/hook-copy-guard.log
+
 # Next.js
 *.tsbuildinfo
 next-env.d.ts
