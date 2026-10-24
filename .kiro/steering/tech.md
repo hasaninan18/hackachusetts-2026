@@ -19,7 +19,8 @@
 - **ZIP → lat/lon** — browser geolocation, or a small static MA ZIP-centroid JSON (Census ZCTA gazetteer).
 
 ## LLM — Amazon Bedrock (DECIDED)
-- Region **us-east-2 (Ohio)** — Free-plan accounts are locked to it.
+> ⚠️ **Verify in the actual AWS account before relying on these:** (1) that Free-plan accounts are locked to us-east-2, and (2) that the `us.` cross-region inference profile for Claude Haiku 4.5 is actually granted. If either is false, fall back to Nova Lite via the `BEDROCK_MODEL_ID` swap.
+- Region **us-east-2 (Ohio)** — Free-plan accounts are reportedly locked to it (verify).
 - **Converse API**. Model **Claude Haiku 4.5** via the `us.` cross-region inference profile if access is granted; else **Amazon Nova Lite**.
 - Keep the model ID in env **`BEDROCK_MODEL_ID`** (one-line swap).
 - Auth via Bedrock long-term API key in Vercel env **`AWS_BEARER_TOKEN_BEDROCK`** — **never commit it**.

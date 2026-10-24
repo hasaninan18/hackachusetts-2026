@@ -15,7 +15,9 @@ Hackathon: **Hackachusetts 2026**, Healthcare & Biotech track, challenge **H5 �
 2. **Plain-language trial card**: what it studies, what you'd do, time commitment — ~8th-grade reading level.
 3. **"Might this fit me?" quick-check**: structured checks (age range, sex, healthy volunteers) + 3–6 simple yes/no/not-sure questions generated from the eligibility text. Outcome is always "possible fit / may rule you out / not sure" — **never "eligible"**.
 4. **Getting there**: nearest MBTA stops (name, lines, ♿ accessible, walking distance) + a Google Maps transit deep link (no key).
-5. **Language toggle**: English, Spanish, Portuguese, Haitian Creole, Chinese, Vietnamese.
+5. **Language toggle** — **demo scope: English, Spanish, Portuguese, Haitian Creole** (the four largest non-English language groups in MA healthcare settings). Each extra language needs spot-checking, and medical translations carry real risk, so we keep the demo list tight and reliable.
+   - **Stretch languages** (only if ahead and spot-checked): Vietnamese, and Chinese. "Chinese" is ambiguous — if added, pick and **label it explicitly**: **Simplified Chinese (Mandarin)** OR **Traditional Chinese (Cantonese)** — do not ship a generic "Chinese" toggle.
+   - Any language that ships must have its forbidden-phrase equivalents added to `safety.md` first, and the forbidden-phrase hook must check its cached translations.
 6. **Contact the study team**: central/site contact from the API + a printable/shareable summary to bring to a doctor.
 
 ## Stretch (only if ahead at 4 PM)

@@ -9,7 +9,13 @@ These rules are **non-negotiable** and override all other guidance. TrialPath he
   - ✅ "Looks like a **possible fit** — contact the study team."
   - ✅ "Some answers **may rule you out** — ask the study team."
   - ✅ "**Not sure** from your answers — the study team can tell you."
-- **Forbidden phrases** (in any language, any casing): "you are eligible", "you qualify", "you're a match", "you have been accepted", "you meet the criteria", "guaranteed", "approved for this trial".
+- **Forbidden phrases (English)**, any casing: "you are eligible", "you qualify", "you're a match", "you have been accepted", "you meet the criteria", "guaranteed", "approved for this trial".
+- **Forbidden phrases apply in every supported language.** A hook can only catch phrases it knows, so the forbidden-phrase list MUST include the equivalents per language, and the reading-level/forbidden-phrase hook MUST run on the **cached translations**, not just the English source. Starter non-English equivalents (extend as copy is finalized):
+  - **Spanish**: "usted califica", "usted es elegible", "cumple los requisitos".
+  - **Portuguese**: "você se qualifica", "você é elegível", "atende aos critérios".
+  - **Haitian Creole**: "ou kalifye", "ou elijib".
+  - (Add Chinese / Vietnamese equivalents if those languages stay in scope — see `product.md` language decision.)
+- If translation adds a language, its forbidden-phrase equivalents must be added **before** that language ships.
 
 ## 2. Plain language, 8th-grade reading level
 - All user-facing **English** copy must be at or below an **8th-grade reading level**.
