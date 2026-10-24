@@ -12,7 +12,7 @@
 //    loosened: a study that used to fail the checklist still shows no questions.
 import { createHash } from "node:crypto";
 import type { SimplifyBody, SimplifyProse, SimplifyQuestion } from "./bedrock-types";
-import { FORBIDDEN_PHRASES, buildChecklist, checkQuestionSemantics } from "./bedrock";
+import { FORBIDDEN_PHRASES, buildChecklist, checkQuestionSemantics, type Prompt } from "./bedrock";
 import {
   REVIEWED_CRITERIA_HASH,
   criteriaRevisionHash,
@@ -48,7 +48,7 @@ export interface TrialSimplifyBody extends SimplifyBody {
 // generated from and is checked on read, so a key collision, a registry edit, or an old
 // entry is treated as a miss instead of being shown.
 export interface CachedTranslation {
-  v: 2;
+  v: 3;
   nctId: string;
   lang: Lang;
   criteriaHash: string;
@@ -86,7 +86,7 @@ export function isValidCachedTranslation(v: unknown, expect: CacheExpectation): 
   if (typeof v !== "object" || v === null) return false;
   const e = v as Record<string, unknown>;
   return (
-    e.v === 2 &&
+    e.v === 3 &&
     e.nctId === expect.nctId &&
     e.lang === expect.lang &&
     e.criteriaHash === expect.criteriaHash &&
@@ -341,6 +341,131 @@ const LANG_LABEL: Record<Lang, string> = {
   vi: "Vietnamese",
 };
 
+// ---------------------------------------------------------------------------
+// Comparison group: usual care vs placebo vs nothing stated
+// ---------------------------------------------------------------------------
+// The summary may only describe a comparison group the registry text actually states.
+// Decided from the study's own descriptive text (title + brief summary), never by the model.
+// Eligibility criteria are left out on purpose: they describe who can join (e.g. "no prior
+// placebo-controlled trial"), not what this study compares against.
+export type ComparisonKind = "usual-care" | "placebo" | "none";
+
+const USUAL_CARE_RE = /\busual[\s-]+care\b|\bstandard[\s-]+(?:of[\s-]+)?care\b/i;
+const PLACEBO_RE = /\bplacebos?\b/i;
+const NEGATION_RE = /\b(?:no|not|without|never|none)\b/i;
+
+/** True when some sentence states the term without a negation shortly before it. */
+function statesTerm(text: string, term: RegExp): boolean {
+  for (const sentence of text.split(/(?<=[.!?;])\s+|\n+/)) {
+    const m = sentence.match(term);
+    if (m && m.index !== undefined && !NEGATION_RE.test(sentence.slice(Math.max(0, m.index - 40), m.index))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Placebo wins when both are stated (e.g. "placebo added to standard care"). */
+export function detectComparison(detail: Pick<TrialDetail, "title" | "briefSummary">): ComparisonKind {
+  const text = `${detail.title}\n${detail.briefSummary}`;
+  if (statesTerm(text, PLACEBO_RE)) return "placebo";
+  if (statesTerm(text, USUAL_CARE_RE)) return "usual-care";
+  return "none";
+}
+
+export const USUAL_CARE_SENTENCE_EN = "You may be put by chance in a group that gets usual care.";
+
+/** The placebo sentence, handwritten per language (machine-drafted; needs speaker review). */
+export const PLACEBO_SENTENCE: Record<Lang, string> = {
+  en: "You may get a placebo (a look-alike with no medicine) instead of the study drug.",
+  es: "Es posible que reciba un placebo (algo que se ve igual pero no tiene medicina) en lugar del medicamento del estudio.",
+  pt: "Você pode receber um placebo (algo parecido, mas sem remédio) em vez do medicamento do estudo.",
+  ht: "Ou ka resevwa yon plasebo (yon bagay ki sanble men ki pa gen medikaman) olye medikaman etid la.",
+  zh: "您可能会得到安慰剂（看起来一样但不含药物的东西），而不是研究药物。",
+  vi: "Bạn có thể nhận giả dược (thứ trông giống nhưng không có thuốc) thay vì thuốc nghiên cứu.",
+};
+
+/** "Placebo" in each language, to catch a translation that adds one. */
+const PLACEBO_WORDS: readonly string[] = ["placebo", "plasebo", "安慰剂", "giả dược"];
+const OTHER_COMPARISON_RE = /\b(?:control|comparison)\s+group\b/i;
+
+/** Case-, spacing- and punctuation-insensitive form (full-width parens etc. compare equal). */
+function looseForm(s: string): string {
+  return s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+/**
+ * Comparison wording in the English summary + whatYouDo:
+ *  - placebo: the summary has the exact placebo sentence; no usual/standard care.
+ *  - usual-care: no placebo (the usual-care sentence stays the model's call, as before:
+ *    only when people are put into groups by chance).
+ *  - none: no usual/standard care, placebo, or control/comparison group at all.
+ */
+export function checkEnglishComparison(
+  prose: Pick<SimplifyProse, "summary" | "whatYouDo">,
+  kind: ComparisonKind,
+): string | null {
+  const text = `${prose.summary}\n${prose.whatYouDo}`;
+  if (kind === "placebo" && !looseForm(prose.summary).includes(looseForm(PLACEBO_SENTENCE.en))) {
+    return "summary is missing the placebo sentence";
+  }
+  if (kind !== "placebo" && PLACEBO_RE.test(text)) {
+    return "mentions a placebo the study data does not state";
+  }
+  if (kind !== "usual-care" && USUAL_CARE_RE.test(text)) {
+    return "mentions usual/standard care the study data does not state";
+  }
+  if (kind === "none" && OTHER_COMPARISON_RE.test(text)) {
+    return "mentions a comparison group the study data does not state";
+  }
+  return null;
+}
+
+/** A translation: the placebo sentence in the target language, or no placebo at all. */
+export function checkTranslatedComparison(
+  prose: Pick<SimplifyProse, "summary" | "whatYouDo">,
+  kind: ComparisonKind,
+  lang: Lang,
+): string | null {
+  if (kind === "placebo") {
+    return looseForm(prose.summary).includes(looseForm(PLACEBO_SENTENCE[lang]))
+      ? null
+      : "translated summary is missing the placebo sentence";
+  }
+  const text = `${prose.summary}\n${prose.whatYouDo}`.toLowerCase();
+  return PLACEBO_WORDS.some((w) => text.includes(w))
+    ? "translation mentions a placebo the study data does not state"
+    : null;
+}
+
+/** The comparison instruction for the English prose prompt. */
+export function comparisonRule(kind: ComparisonKind): string {
+  switch (kind) {
+    case "usual-care":
+      return `The study data says some people get usual care (standard care). Only if people are put into groups by chance, include exactly: '${USUAL_CARE_SENTENCE_EN}' Never mention a placebo.`;
+    case "placebo":
+      return `The study compares the study drug with a placebo. Include exactly this sentence: '${PLACEBO_SENTENCE.en}' Do not mention usual care or standard care.`;
+    case "none":
+      return "The study data does not mention usual care, standard care, or a placebo. Do not mention a comparison group, a control group, usual care, standard care, or a placebo.";
+  }
+}
+
+// lib/bedrock.ts's summary rule always asks for the usual-care sentence when randomized.
+const BEDROCK_USUAL_CARE_RULE = `If the study is randomized, include '${USUAL_CARE_SENTENCE_EN}' `;
+
+/**
+ * lib/bedrock.ts's English prose prompt with its usual-care rule swapped for the rule that
+ * matches what the registry states. If that text ever changes in bedrock.ts, the rule is
+ * appended instead and explicitly overrides it.
+ */
+export function withComparisonRule(base: Prompt, kind: ComparisonKind): Prompt {
+  const rule = comparisonRule(kind);
+  const system = base.system.includes(BEDROCK_USUAL_CARE_RULE)
+    ? base.system.replace(BEDROCK_USUAL_CARE_RULE, `${rule} `)
+    : `${base.system}\n- Comparison group (replaces any other instruction about usual care): ${rule}`;
+  return { system, user: base.user };
+}
+
 /** Extra rule appended to lib/bedrock.ts's English prose prompt. */
 export const KEEP_EXACT_RULE =
   "Keep drug names, study codes (for example LY5724886), acronyms, and numbers exactly as written in the study data. Never respell, split, or reformat them.";
@@ -353,7 +478,14 @@ export interface TranslateInput extends SimplifyProse {
 export function buildTitleAndProseTranslatePrompt(
   input: TranslateInput,
   lang: Lang,
+  comparison: ComparisonKind,
 ): { system: string; user: string } {
+  const comparisonLine =
+    comparison === "placebo"
+      ? `- Translate the placebo sentence as exactly: "${PLACEBO_SENTENCE[lang]}"`
+      : comparison === "usual-care"
+        ? "- When present, keep the sentence that says they may get usual care by chance. Never mention a placebo."
+        : "- Do not add anything about a comparison group, usual care, or a placebo.";
   const system = [
     "You translate a small JSON object about a clinical trial from English into another language.",
     "Return JSON only. No markdown, no code fences, no text outside the JSON.",
@@ -367,7 +499,8 @@ export function buildTitleAndProseTranslatePrompt(
     "- Keep every NCT id, phone number, and email address EXACTLY as written.",
     "- Do NOT add or remove any number. Use the same digits as the English.",
     "- Keep the name of the hospital or site exactly as written.",
-    "- Keep the sentences that say taking part is the reader's choice and, when present, that they may get usual care by chance.",
+    "- Keep the sentence that says taking part is the reader's choice.",
+    comparisonLine,
     "- Never say or imply the reader is eligible, qualifies, is a match, is accepted, is approved, or is guaranteed anything, in any language. Do not use the words eligible, qualify, or their translations.",
     `Target language: ${LANG_LABEL[lang]}.`,
   ].join("\n");

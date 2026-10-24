@@ -36,7 +36,11 @@ import { SHARED_CACHE_TTL_SECONDS, sharedCache, type SharedCache } from "./share
 import {
   KEEP_EXACT_RULE,
   buildTitleAndProseTranslatePrompt,
+  checkEnglishComparison,
+  checkTranslatedComparison,
   codeSourceText,
+  detectComparison,
+  withComparisonRule,
   isValidCachedTranslation,
   parseTranslatedTitle,
   resolveChecklist,
@@ -54,7 +58,7 @@ import type { Lang, TrialDetail } from "./types";
 // Cache key: (nctId, lang, criteria-revision hash)
 // ---------------------------------------------------------------------------
 export function simplifyCacheKey(nct: string, lang: Lang, criteriaHash: string): string {
-  return `simplify:v2:${nct}:${lang}:${criteriaHash}`;
+  return `simplify:v3:${nct}:${lang}:${criteriaHash}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -186,15 +190,21 @@ export async function generateTrialSimplify(deps: GenerateTrialDeps): Promise<Ge
   ].join("\n");
   const source = extractProtectedValues(sourceText);
 
-  // 1) English prose, written from the registry with the existing summary prompt rules.
+  // What the registry says the comparison group is (usual care, placebo, or nothing).
+  const comparison = detectComparison(detail);
+
+  // 1) English prose, written from the registry with the existing summary prompt rules,
+  //    except the comparison-group rule, which follows what the registry states.
   let english = deps.englishBase;
   if (!english) {
-    const base = buildEnglishProsePrompt(detail);
+    const base = withComparisonRule(buildEnglishProsePrompt(detail), comparison);
     const prompt: Prompt = { system: base.system, user: `${base.user}\n${KEEP_EXACT_RULE}` };
     const generated = await callWithOneRetry(deps, deadline, prompt, (raw) => {
       const v = validateProseOutput(raw, { lang: "en", source });
       if (!v.ok) return v;
-      const err = validateEnglishFields(v.value, codeSourceText(detail));
+      const err =
+        validateEnglishFields(v.value, codeSourceText(detail)) ??
+        checkEnglishComparison(v.value, comparison);
       return err ? { ok: false, error: err } : v;
     });
     if (!generated.ok) return { ok: false, error: `english generation failed: ${generated.error}` };
@@ -221,14 +231,16 @@ export async function generateTrialSimplify(deps: GenerateTrialDeps): Promise<Ge
   const translated = await callWithOneRetry(
     deps,
     deadline,
-    buildTitleAndProseTranslatePrompt({ title: detail.title, ...englishProse }, lang),
+    buildTitleAndProseTranslatePrompt({ title: detail.title, ...englishProse }, lang, comparison),
     (raw): Checked<{ prose: SimplifyProse; title: string }> => {
       const v = validateProseOutput(raw, { lang, source });
       if (!v.ok) return v;
       const invariant = checkProseTranslationInvariants(englishProse, v.value);
       if (invariant) return { ok: false, error: invariant };
       const title = parseTranslatedTitle(raw);
-      const err = validateTranslatedFields({ ...v.value, title }, original);
+      const err =
+        validateTranslatedFields({ ...v.value, title }, original) ??
+        checkTranslatedComparison(v.value, comparison, lang);
       if (err || !title) return { ok: false, error: err ?? "title is empty" };
       return { ok: true, value: { prose: v.value, title } };
     },
@@ -319,7 +331,7 @@ export async function simplifyTrial(
       : undefined;
   };
   const write = (l: Lang, title: string, prose: SimplifyProse) => {
-    const entry: CachedTranslation = { v: 2, ...identity, lang: l, createdAt: now(), title, prose };
+    const entry: CachedTranslation = { v: 3, ...identity, lang: l, createdAt: now(), title, prose };
     return cache.set(simplifyCacheKey(nct, l, criteriaHash), entry);
   };
 

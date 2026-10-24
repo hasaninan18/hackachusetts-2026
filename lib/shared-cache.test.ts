@@ -106,7 +106,7 @@ describe("Vercel Runtime Cache", () => {
     await createSharedCache().get("k");
     const opts = vercel.getCache.mock.calls[0][0] as { namespace: string; keyHashFunction: (k: string) => string };
     expect(opts.namespace).toBe("trialpath");
-    expect(opts.keyHashFunction("simplify:v2:NCT07043426:es:abc")).toMatch(/^[0-9a-f]{64}$/);
+    expect(opts.keyHashFunction("simplify:v3:NCT07043426:es:abc")).toMatch(/^[0-9a-f]{64}$/);
     expect(opts.keyHashFunction("a")).not.toBe(opts.keyHashFunction("b"));
   });
 

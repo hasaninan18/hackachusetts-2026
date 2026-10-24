@@ -4,9 +4,15 @@ import fc from "fast-check";
 import { describe, expect, it, vi } from "vitest";
 import {
   ALL_BANNED_PHRASES,
+  PLACEBO_SENTENCE,
   buildTitleAndProseTranslatePrompt,
+  checkEnglishComparison,
   checkTokensPreserved,
+  checkTranslatedComparison,
   codeSourceText,
+  comparisonRule,
+  detectComparison,
+  withComparisonRule,
   codeTokens,
   findBannedPhrase,
   numberTokens,
@@ -15,7 +21,7 @@ import {
   validateEnglishFields,
   validateTranslatedFields,
 } from "./simplify-auto";
-import { FORBIDDEN_PHRASES } from "./bedrock";
+import { FORBIDDEN_PHRASES, buildEnglishProsePrompt } from "./bedrock";
 import { heroCriteriaWithHospice, heroDetail } from "./test-fixtures/nct07043426";
 import { LANGS } from "./types";
 
@@ -224,11 +230,88 @@ describe("English fields", () => {
   });
 });
 
+describe("comparison group (usual care / placebo / none)", () => {
+  const study = (title: string, briefSummary: string) => ({ title, briefSummary });
+
+  it("detects what the registry text states", () => {
+    expect(detectComparison(study("A Placebo-Controlled Study of LY5724886", "Adults with obesity."))).toBe("placebo");
+    expect(detectComparison(study("A Study", "Drug X is compared with placebo."))).toBe("placebo");
+    expect(detectComparison(study("A Study", "THRIVE-DM is compared to usual care."))).toBe("usual-care");
+    expect(detectComparison(study("A Study", "Patients continue standard of care."))).toBe("usual-care");
+    expect(detectComparison(study("A Study", "Compared with standard care."))).toBe("usual-care");
+    expect(detectComparison(study("A Study", "Everyone gets the new program."))).toBe("none");
+  });
+
+  it("placebo wins when both are stated; negated mentions and criteria do not count", () => {
+    expect(detectComparison(study("A Study", "Drug X or placebo, added to standard care."))).toBe("placebo");
+    expect(detectComparison(study("A Study", "There is no placebo in this study."))).toBe("none");
+    expect(detectComparison(study("A Study", "Everyone gets the drug; it is not compared with usual care."))).toBe("none");
+    // Eligibility criteria are not part of the detection.
+    expect(detectComparison({ ...heroDetail(), briefSummary: "A diabetes study." })).toBe("none");
+  });
+
+  it("swaps lib/bedrock.ts's usual-care rule for the rule that matches the registry", () => {
+    const base = buildEnglishProsePrompt(heroDetail());
+    expect(base.system).toContain("If the study is randomized, include 'You may be put by chance");
+    for (const kind of ["placebo", "none", "usual-care"] as const) {
+      const p = withComparisonRule(base, kind);
+      expect(p.system).not.toContain("If the study is randomized, include");
+      expect(p.system).toContain(comparisonRule(kind));
+      expect(p.system).toContain("Always include 'Taking part is your choice.'");
+      expect(p.user).toBe(base.user);
+    }
+    expect(withComparisonRule(base, "placebo").system).toContain(PLACEBO_SENTENCE.en);
+  });
+
+  const prose = (summary: string, whatYouDo = "You visit the clinic.") => ({ summary, whatYouDo });
+  const PLACEBO_EN = PLACEBO_SENTENCE.en;
+
+  it("placebo study: requires the placebo sentence and forbids usual care", () => {
+    expect(checkEnglishComparison(prose(`A drug study. ${PLACEBO_EN} Taking part is your choice.`), "placebo")).toBeNull();
+    expect(checkEnglishComparison(prose("A drug study. Taking part is your choice."), "placebo")).toMatch(/missing the placebo/);
+    expect(
+      checkEnglishComparison(prose(`${PLACEBO_EN} You may be put by chance in a group that gets usual care.`), "placebo"),
+    ).toMatch(/usual\/standard care/);
+  });
+
+  it("usual-care study: forbids a placebo; none: forbids any comparison group", () => {
+    expect(checkEnglishComparison(prose("You may be put by chance in a group that gets usual care."), "usual-care")).toBeNull();
+    expect(checkEnglishComparison(prose(PLACEBO_EN), "usual-care")).toMatch(/placebo/);
+    expect(checkEnglishComparison(prose("A study.", "You keep your usual care."), "none")).toMatch(/usual\/standard care/);
+    expect(checkEnglishComparison(prose("A study.", "Some people get a placebo."), "none")).toMatch(/placebo/);
+    expect(checkEnglishComparison(prose("A study with a control group."), "none")).toMatch(/comparison group/);
+    expect(checkEnglishComparison(prose("A study. Taking part is your choice."), "none")).toBeNull();
+  });
+
+  it("translations: each language's placebo sentence passes (punctuation-insensitive) and is safe", () => {
+    for (const lang of LANGS) {
+      const sentence = PLACEBO_SENTENCE[lang];
+      expect(findBannedPhrase(sentence), lang).toBeNull();
+      expect(checkTranslatedComparison(prose(`Texto. ${sentence}`), "placebo", lang), lang).toBeNull();
+      expect(checkTranslatedComparison(prose("Texto."), "placebo", lang), lang).toMatch(/missing the placebo/);
+    }
+    // Half-width punctuation in place of the Chinese full-width marks still matches.
+    const zhAscii = PLACEBO_SENTENCE.zh.replace("（", "(").replace("）", ")").replace("，", ",");
+    expect(checkTranslatedComparison(prose(zhAscii), "placebo", "zh")).toBeNull();
+    // A translation that adds a placebo to a non-placebo study is rejected.
+    expect(checkTranslatedComparison(prose("Puede recibir un placebo."), "usual-care", "es")).toMatch(/placebo/);
+    expect(checkTranslatedComparison(prose("您可能会得到安慰剂。"), "none", "zh")).toMatch(/placebo/);
+  });
+
+  it("the translate prompt carries the comparison rule for the target language", () => {
+    const input = { title: "T", summary: "s", whatYouDo: "w", timeCommitment: "t", staff_checks: [] };
+    expect(buildTitleAndProseTranslatePrompt(input, "es", "placebo").system).toContain(PLACEBO_SENTENCE.es);
+    expect(buildTitleAndProseTranslatePrompt(input, "es", "none").system).toMatch(/Do not add anything about a comparison group/);
+    expect(buildTitleAndProseTranslatePrompt(input, "es", "usual-care").system).toMatch(/usual care by chance/);
+  });
+});
+
 describe("translate prompt + title parsing", () => {
   it("asks for the title with exact codes and keeps the study data as JSON", () => {
     const p = buildTitleAndProseTranslatePrompt(
       { title: "A Study of LY5724886", summary: "s", whatYouDo: "w", timeCommitment: "t", staff_checks: [] },
       "es",
+      "none",
     );
     expect(p.system).toContain("LY5724886");
     expect(p.system).toMatch(/title, summary, whatYouDo, timeCommitment, staff_checks/);

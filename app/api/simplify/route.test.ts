@@ -41,7 +41,7 @@ import { POST } from "./route";
 const NCT = "NCT07043426";
 const HERO_TITLE = "THRIVE-DM at BMC";
 
-function studyBody(nct = NCT, title = HERO_TITLE) {
+function studyBody(nct = NCT, title = HERO_TITLE, briefSummary?: string) {
   return {
     studies: [
       {
@@ -49,7 +49,8 @@ function studyBody(nct = NCT, title = HERO_TITLE) {
           identificationModule: { nctId: nct, briefTitle: title },
           conditionsModule: { conditions: ["Type 2 Diabetes"] },
           designModule: { phases: ["PHASE2"] },
-          descriptionModule: { briefSummary: "A diabetes study. Call 617-555-0100 or email team@bmc.org." },
+          // States usual care, so the usual-care sentence in goodProse() is allowed.
+          descriptionModule: { briefSummary: briefSummary ?? "A diabetes study that compares THRIVE-DM with usual care. Call 617-555-0100 or email team@bmc.org." },
           eligibilityModule: {
             eligibilityCriteria: HERO_CRITERIA,
             sex: "ALL",
@@ -122,10 +123,10 @@ const OTHER_LANG_PROSE: Record<"pt" | "ht" | "zh" | "vi", Record<string, unknown
     staff_checks: [],
   },
 };
-function mockFetchStudy(nct = NCT, title = HERO_TITLE) {
+function mockFetchStudy(nct = NCT, title = HERO_TITLE, briefSummary?: string) {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => new Response(JSON.stringify(studyBody(nct, title)), { status: 200, headers: { "content-type": "application/json" } })),
+    vi.fn(async () => new Response(JSON.stringify(studyBody(nct, title, briefSummary)), { status: 200, headers: { "content-type": "application/json" } })),
   );
 }
 function req(body: unknown, { raw = false }: { raw?: boolean } = {}): Request {
@@ -381,6 +382,89 @@ describe("title / summary / whatYouDo validation", () => {
     expect(res.status).toBe(503);
   });
 });
+describe("comparison group follows the registry text", () => {
+  const PLACEBO_NCT = "NCT10000005";
+  const PLACEBO_TITLE = "A Placebo-Controlled Study of LY5724886 in Adults With Obesity";
+  const PLACEBO_SUMMARY =
+    "This study compares LY5724886 with placebo in adults with obesity. Call 617-555-0100.";
+  const placeboEn = (summary: string) =>
+    JSON.stringify({
+      summary,
+      whatYouDo: "You take the study medicine or placebo each week. Call 617-555-0100.",
+      timeCommitment: "About 4 visits over 6 months.",
+      staff_checks: [],
+    });
+  const GOOD_EN =
+    "This study at Boston Medical Center tests LY5724886 for obesity. You may get a placebo (a look-alike with no medicine) instead of the study drug. Taking part is your choice.";
+  const placeboEs = (summary: string) =>
+    JSON.stringify({
+      title: "Un estudio con placebo de LY5724886 en adultos con obesidad",
+      summary,
+      whatYouDo: "Usted toma el medicamento del estudio o un placebo cada semana. Llame al 617-555-0100.",
+      timeCommitment: "Unas 4 visitas durante 6 meses.",
+      staff_checks: [],
+    });
+  const GOOD_ES =
+    "Este estudio en Boston Medical Center prueba LY5724886 para la obesidad. Es posible que reciba un placebo (algo que se ve igual pero no tiene medicina) en lugar del medicamento del estudio. Participar es su elección.";
+
+  it("a placebo-controlled study gets the placebo sentence in English and Spanish, never usual care", async () => {
+    mockFetchStudy(PLACEBO_NCT, PLACEBO_TITLE, PLACEBO_SUMMARY);
+    const usualCare = GOOD_EN.replace(
+      "You may get a placebo (a look-alike with no medicine) instead of the study drug.",
+      "You may be put by chance in a group that gets usual care.",
+    );
+    bedrock.queue = [placeboEn(usualCare), placeboEn(GOOD_EN), placeboEs(GOOD_ES)];
+    const res = await POST(req({ nct: PLACEBO_NCT, lang: "es" }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.summary).toContain(
+      "Es posible que reciba un placebo (algo que se ve igual pero no tiene medicina) en lugar del medicamento del estudio.",
+    );
+    expect(body.summary).not.toMatch(/atención habitual|usual care/);
+    // usual-care English rejected → retried once → placebo English → Spanish translation.
+    expect(bedrock.modelIds).toHaveLength(3);
+    // English, served from the cached English prose (no new Bedrock call).
+    const en = await POST(req({ nct: PLACEBO_NCT, lang: "en" }));
+    expect((await en.json()).summary).toContain(
+      "You may get a placebo (a look-alike with no medicine) instead of the study drug.",
+    );
+    expect(bedrock.modelIds).toHaveLength(3);
+  });
+
+  it("a placebo-controlled study whose summary skips the placebo sentence twice → 503", async () => {
+    mockFetchStudy(PLACEBO_NCT, PLACEBO_TITLE, PLACEBO_SUMMARY);
+    const noComparison = placeboEn("This study at Boston Medical Center tests LY5724886. Taking part is your choice.");
+    bedrock.queue = [noComparison, noComparison];
+    const res = await POST(req({ nct: PLACEBO_NCT, lang: "en" }));
+    expect(res.status).toBe(503);
+  });
+
+  it("a Spanish translation that loses the placebo sentence is rejected", async () => {
+    mockFetchStudy(PLACEBO_NCT, PLACEBO_TITLE, PLACEBO_SUMMARY);
+    const loose = placeboEs(
+      "Este estudio en Boston Medical Center prueba LY5724886 para la obesidad. Participar es su elección.",
+    );
+    bedrock.queue = [placeboEn(GOOD_EN), loose, loose];
+    const res = await POST(req({ nct: PLACEBO_NCT, lang: "es" }));
+    expect(res.status).toBe(503);
+  });
+
+  it("a study that states neither gets no comparison-group sentence", async () => {
+    const plain = "NCT10000006";
+    mockFetchStudy(plain, HERO_TITLE, "A diabetes study about community help. Call 617-555-0100.");
+    // goodProse() says "usual care", which this registry text never states.
+    bedrock.queue = [goodProse(), goodProse()];
+    expect((await POST(req({ nct: plain, lang: "en" }))).status).toBe(503);
+    const none = goodProse({
+      summary: "This study at Boston Medical Center looks at type 2 diabetes. Taking part is your choice.",
+    });
+    bedrock.queue = [none];
+    const res = await POST(req({ nct: plain, lang: "en" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).summary).not.toMatch(/usual care|placebo/i);
+  });
+});
+
 describe("caching", () => {
   it("separates cache by language and does not re-invoke Bedrock on a repeat call", async () => {
     mockFetchStudy(NCT);
