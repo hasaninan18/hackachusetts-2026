@@ -9,6 +9,7 @@ import { TrialPlain } from "@/components/TrialPlain";
 import { StudyResults } from "@/components/StudyResults";
 import { getTrial, wantsMocks } from "@/lib/data";
 import { getDictionary, isLang, translator } from "@/lib/i18n";
+import { loadAutoTranslation } from "@/lib/trial-auto";
 import type { Eligibility } from "@/lib/types";
 import type { TrialDetailWithOutcomes } from "@/lib/outcomes";
 
@@ -101,6 +102,12 @@ async function Trial({ params, searchParams }: Props) {
     </nav>
   );
 
+  // Non-English pages get the translated title and summary before rendering, so the first
+  // paint is already in the page language. It starts now so it runs alongside the trial
+  // load, and resolves null (English fallback) on failure or after the simplify budget.
+  const autoPromise =
+    !mock && lang !== "en" ? loadAutoTranslation(nct, lang, dict["trial.timeAsk"]) : undefined;
+
   let trial: TrialDetailWithOutcomes | null;
   try {
     trial = await loadTrial(nct, mock, origin?.lat, origin?.lon);
@@ -132,6 +139,7 @@ async function Trial({ params, searchParams }: Props) {
     );
   }
   if (!trial) notFound();
+  const auto = autoPromise ? await autoPromise : undefined;
 
   // Trial facts come from ClinicalTrials.gov in English; mark them so screen readers switch voice.
   const enLang = lang !== "en" ? "en" : undefined;
@@ -154,9 +162,19 @@ async function Trial({ params, searchParams }: Props) {
       {nav}
 
       <p className="print-only mt-2 text-sm text-muted">{t("print.heading")}</p>
-      <h1 className="mt-3 text-2xl font-bold leading-tight text-ink" lang={enLang}>
-        {trial.title}
-      </h1>
+      {auto ? (
+        <>
+          <h1 className="mt-3 text-2xl font-bold leading-tight text-ink">{auto.title}</h1>
+          <p className="mt-1 text-sm text-muted">
+            <span className="sr-only">{`${t("trial.auto.originalTitle")} `}</span>
+            <span lang="en">{trial.title}</span>
+          </p>
+        </>
+      ) : (
+        <h1 className="mt-3 text-2xl font-bold leading-tight text-ink" lang={enLang}>
+          {trial.title}
+        </h1>
+      )}
       <p className="mt-1 text-muted">{trial.nctId}</p>
 
       <div className="mt-4">
@@ -176,6 +194,13 @@ async function Trial({ params, searchParams }: Props) {
         briefSummary={trial.briefSummary}
         eligibility={eligibility}
         dict={dict}
+        initial={
+          autoPromise
+            ? auto
+              ? { status: "ready", data: auto.simplified }
+              : { status: "failed" }
+            : undefined
+        }
       />
 
       <StudyResults nctId={trial.nctId} outcomes={trial.outcomes} t={t} />

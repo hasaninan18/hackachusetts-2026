@@ -32,6 +32,8 @@ function cacheKey(nctId: string, lang: Lang, mock: boolean): string {
 
 // Fetches the plain-language version once per trial + language, then feeds PlainCard and
 // QuickCheck. Only { nctId, lang } is ever sent; quick-check answers stay in this component tree.
+// `initial` is the server's answer for exactly this nctId + lang (non-English pages get it
+// before rendering, so there is no English flash). When given, no client request is made.
 export function TrialPlain({
   nctId,
   lang,
@@ -39,6 +41,7 @@ export function TrialPlain({
   briefSummary,
   eligibility,
   dict,
+  initial,
 }: {
   nctId: string;
   lang: Lang;
@@ -46,6 +49,7 @@ export function TrialPlain({
   briefSummary: string;
   eligibility: Eligibility;
   dict: Dictionary;
+  initial?: Exclude<SimplifyState, { status: "loading" }>;
 }) {
   const t = translator(dict);
   const timeFallback = dict["trial.timeAsk"];
@@ -54,13 +58,17 @@ export function TrialPlain({
   // new props) shows the loading state again instead of the previous language's text.
   const [result, setResult] = useState<{ key: string; state: SimplifyState } | null>(null);
   const cached = simplifiedCache.get(requestKey);
-  const state: SimplifyState = cached
-    ? { status: "ready", data: cached }
-    : result && result.key === requestKey
-      ? result.state
-      : { status: "loading" };
+  const state: SimplifyState = initial
+    ? initial
+    : cached
+      ? { status: "ready", data: cached }
+      : result && result.key === requestKey
+        ? result.state
+        : { status: "loading" };
+  const hasInitial = initial !== undefined;
 
   useEffect(() => {
+    if (hasInitial) return; // the server already answered (or gave up) for this request
     const key = cacheKey(nctId, lang, mock);
     if (simplifiedCache.has(key)) return;
 
@@ -111,7 +119,7 @@ export function TrialPlain({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [nctId, lang, mock, timeFallback]);
+  }, [nctId, lang, mock, timeFallback, hasInitial]);
 
   const questions = state.status === "ready" ? state.data.questions : [];
   const questionsLang = state.status === "ready" ? state.data.lang : lang;

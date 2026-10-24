@@ -77,6 +77,8 @@ function PlainBody({
   const { data } = state;
   // The mock and the API can fall back to English when a translation is missing.
   const contentLang = data.lang !== lang ? HTML_LANG[data.lang] : undefined;
+  // Machine-translated text gets a small label and a way to read the registry's own words.
+  const translated = data.lang !== "en";
   const sections = [
     { key: "what", heading: t("trial.what"), body: data.whatItStudies },
     { key: "do", heading: t("trial.do"), body: data.whatYouDo },
@@ -88,9 +90,23 @@ function PlainBody({
       {sections.map((s, i) => (
         <div key={s.key} className={i > 0 ? "mt-6" : undefined}>
           <h2 className="text-xl font-semibold text-ink">{s.heading}</h2>
+          {translated && s.key === "what" && (
+            <p className="mt-1 text-sm text-muted">{t("trial.auto.summaryLabel")}</p>
+          )}
           <p className="mt-2 whitespace-pre-line text-ink" lang={contentLang}>
             {s.body}
           </p>
+          {translated && s.key === "what" && briefSummary.trim() && (
+            <details className="mt-2">
+              {/* Kept as display: list-item so the browser's open/closed marker still shows. */}
+              <summary className="min-h-11 cursor-pointer py-2 text-base font-medium text-primary underline">
+                {t("trial.auto.showOriginal")}
+              </summary>
+              <p className="mt-2 whitespace-pre-line text-ink" lang="en">
+                {briefSummary}
+              </p>
+            </details>
+          )}
         </div>
       ))}
     </section>
