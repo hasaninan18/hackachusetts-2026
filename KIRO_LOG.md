@@ -135,6 +135,12 @@ Grounded in .kiro/steering/safety.md. Rows and boxes are blank for the team to f
   - **PR #13** (`akash/kiro` into `main`) was merged at **14:29** (merge commit `6c5a83a` on main), with merges done from the `hasaninan18` GitHub account per `docs/TASKS.md`.
   - The earlier getting-there spec files are preserved on main under `.kiro/specs/getting-there/planning-reference/` (added by Hasan's merge); the fit-check spec has requirements, design and tasks.
   - `docs/TASKS.md` on main assigns Hasan the simplify route (source evidence, age validation, English and Spanish verification) and Neil the cautious quickCheck fallback and frontend QA. These are **pending, not complete**.
+- [2026-10-24] crew:Kiro Crew (source: Akash's Crew sessions, NOT Kiro IDE's own observation) —
+  - **Kiro Crew desktop app** installed and opened on the repo (`akash/kiro`).
+  - **Session 1**, task: "Review docs/QA_CHECKLIST.md against .kiro/steering/safety.md and list anything missing. Do not edit any files." Finished in **~13 seconds (0.58 credits)** and reported **9 gaps plus 2 smaller ones** (for example: Vietnamese phrases, contact and disclaimer on non-trial pages, quick-check answers never logged server-side, no diagnosis advice).
+  - **Session 2**, task: "Check each tasks.md under .kiro/specs/ for tasks marked done that no code actually satisfies. Do not edit any files." Checked every done task across **six specs** and found **no orphan "done" items**, noting only that the getting-there spec's wheelchair-mapping gap is now partly stale because `lib/mbta.ts` exists.
+  - The two sessions ran **one after the other, not in parallel**.
+  - `git status --short` afterward showed **no tracked file modified**; Crew left two untracked files, `.kiro/settings/.kirocrew-cli-settings.lock` and `.kiro/settings/cli.json`, which are **not committed** (added to `.gitignore`).
 ## Neil — Codex follow-up (2026-10-24; not Kiro evidence)
 - Existing frontend work was already on main: `7a0f458` (screens/checklist/transit/contact), `3cd409a` (review fixes), and `cdd898d` (disclaimer/safety tests). This follow-up builds on those commits; it is not a new Kiro rebuild.
 - With Neil's explicit approval to implement in Codex, completed five UI dictionaries, bundled Noto fonts locally, and added a source-linked reported-results section with validation and honest unchecked/missing/error states. No real outcome numbers were invented; live results integration remains pending.

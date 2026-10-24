@@ -5,6 +5,7 @@ import { translator } from "@/lib/i18n";
 import type { Dictionary } from "@/lib/i18n/en";
 import { getMockSimplified } from "@/lib/mock/simplified";
 import { parseSimplified } from "@/lib/simplify";
+import { CLIENT_TIMEOUT_FLOOR_MS } from "../lib/simplify-budget";
 import type { Eligibility, Lang, Simplified } from "@/lib/types";
 import { PlainCard } from "./PlainCard";
 import { QuickCheck } from "./QuickCheck";
@@ -14,7 +15,7 @@ export type SimplifyState =
   | { status: "ready"; data: Simplified }
   | { status: "failed" };
 
-const TIMEOUT_MS = 10_000; // docs/FRONTEND_PLAN.md §12
+const TIMEOUT_MS = CLIENT_TIMEOUT_FLOOR_MS;
 const MOCK_DELAY_MS = 400; // long enough to see the loading state
 
 // In-memory only (never localStorage/sessionStorage) and only successful results. With Cache

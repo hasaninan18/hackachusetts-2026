@@ -19,3 +19,6 @@ tests/hook-copy-guard.log
 next-env.d.ts
 .vercel
 npm-debug.log*
+# Kiro Crew CLI local state (never commit — do NOT ignore .kiro/ itself)
+.kiro/settings/.kirocrew-cli-settings.lock
+.kiro/settings/cli.json

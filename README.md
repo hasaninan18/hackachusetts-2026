@@ -39,7 +39,8 @@ Full detail: **[docs/KIRO_WRITEUP.md](docs/KIRO_WRITEUP.md)**. Claims below are 
   the Context7 review, and the CLI run**. The **Kiro CLI** (`kiro-cli.exe`, 2.34.0) ran
   `npx vitest run` with no edits in 23s and reported, **at that time**, 62 tests / 57 passed / 5
   failed (the empty translation dictionaries) — fixed on `main`. The `kiro` command is the IDE
-  launcher. **Kiro Crew: TODO — no Crew run in the log.**
+  launcher. **Kiro Crew:** two read-only Crew review sessions, run sequentially, no files edited
+  (per `KIRO_LOG.md`).
 - **Spec-driven vs vibe coding.** Three features are spec-driven with EARS requirements and were
   written in the Kiro IDE: **fit-check**, **getting-there**, and **translation** — each with
   **requirements + design + tasks**. `trialpath-ui` is a **retrospective Codex spec**, not proof of
