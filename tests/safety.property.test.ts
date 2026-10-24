@@ -26,6 +26,7 @@ import { mockTrials } from "../lib/mock/data";
 // simplified.ts holds the module-private fixture via a getter; pull the shipped strings out.
 import { getMockSimplified } from "../lib/mock/simplified";
 import { LANGS } from "../lib/types";
+import { ALL_FORBIDDEN, findForbiddenPhrase } from "./copy-guard.mjs";
 
 // ---------------------------------------------------------------------------
 // haversineMi — a distance is symmetric, never negative, and zero for a point
@@ -188,33 +189,8 @@ describe("quickCheck cross-cutting contract", () => {
 // We scan STRING VALUES from the real exports, so source comments can't trip it.
 // ---------------------------------------------------------------------------
 
-// Verbatim from .kiro/steering/safety.md §1, case-insensitive.
-const FORBIDDEN_BY_LANG: Record<string, string[]> = {
-  en: [
-    "you are eligible",
-    "you qualify",
-    "you're a match",
-    "you have been accepted",
-    "you meet the criteria",
-    "guaranteed",
-    "approved for this trial",
-  ],
-  es: ["usted califica", "usted es elegible", "cumple los requisitos"],
-  pt: ["você se qualifica", "você é elegível", "atende aos critérios"],
-  ht: ["ou kalifye", "ou elijib"],
-  zh: ["您符合条件", "您符合资格", "您合格"],
-  // Vietnamese equivalents (safety.md §1). NEEDS REVIEW by a Vietnamese speaker —
-  // machine-drafted, not verified. Added before vi ships so the scan covers vi copy too.
-  vi: [
-    "bạn đủ điều kiện",
-    "bạn đủ tiêu chuẩn",
-    "bạn phù hợp",
-    "bạn đáp ứng các tiêu chí",
-    "được bảo đảm",
-  ],
-};
-
-const ALL_FORBIDDEN = Object.values(FORBIDDEN_BY_LANG).flat();
+// The forbidden-phrase list lives in ONE place, tests/copy-guard.mjs (from safety.md §1), and
+// this scan uses the same matcher, so the hook, this test and lib/i18n/i18n.test.ts can't drift.
 
 // The single allowed use of "eligib*": the fixed disclaimer required by safety.md §4.
 const MANDATED_DISCLAIMER = "TrialPath is not medical advice. The study team decides eligibility.";
@@ -253,12 +229,11 @@ describe("safety.md forbidden-phrase scan over shipped copy", () => {
   });
 
   it("contains no forbidden phrase in any supported language", () => {
+    expect(ALL_FORBIDDEN.length).toBeGreaterThan(0);
     const offenders: Array<{ phrase: string; text: string }> = [];
     for (const text of strings) {
-      const hay = text.toLowerCase();
-      for (const phrase of ALL_FORBIDDEN) {
-        if (hay.includes(phrase.toLowerCase())) offenders.push({ phrase, text });
-      }
+      const hit = findForbiddenPhrase(text);
+      if (hit) offenders.push({ phrase: hit.phrase, text });
     }
     expect(offenders).toEqual([]);
   });

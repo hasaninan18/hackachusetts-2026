@@ -10,7 +10,7 @@
 // Exit code 0 = clean, 2 = violation(s) found (so a PreToolUse/Post hook can block/flag).
 // Dependency-free so it runs without node_modules.
 
-import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { appendFileSync, readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 
 // ---- Forbidden phrases (keep in sync with .kiro/steering/safety.md) ----
 // Matched case-insensitively as substrings of the visible copy.
@@ -25,7 +25,13 @@ const FORBIDDEN = {
   ht: ["ou kalifye", "ou elijib"],
   zh: ["您符合条件", "您符合资格", "您合格"],
   // Vietnamese: needs review by a Vietnamese speaker (machine-drafted, not verified).
-  vi: ["bạn đủ điều kiện", "bạn đủ tiêu chuẩn", "bạn phù hợp", "bạn đáp ứng các tiêu chí", "được bảo đảm"],
+  // The eligibility terms themselves are forbidden ("đủ điều kiện", "hội đủ", "đủ tiêu chuẩn"),
+  // so rewordings like "bạn có đủ điều kiện tham gia" are caught. "đảm bảo"/"bảo đảm" alone
+  // also means "make sure", so only the claim form "được … bảo đảm" (is guaranteed) is forbidden.
+  vi: [
+    "đủ điều kiện", "hội đủ", "đủ tiêu chuẩn", "đáp ứng các tiêu chí", "bạn phù hợp",
+    "được bảo đảm", "được đảm bảo",
+  ],
 };
 export const ALL_FORBIDDEN = Object.entries(FORBIDDEN).flatMap(([lang, arr]) =>
   arr.map((p) => ({ lang, phrase: p }))
@@ -33,10 +39,12 @@ export const ALL_FORBIDDEN = Object.entries(FORBIDDEN).flatMap(([lang, arr]) =>
 
 // Return the matching {lang, phrase} if `text` contains any forbidden phrase (case-insensitive),
 // or null if it's clean. Pure, total, never throws on any string input (incl. non-Latin / empty).
+// Both sides are NFC-normalized: Vietnamese typed with combining accents (NFD, e.g. pasted
+// from macOS or some input methods) must match the composed phrases above.
 export function findForbiddenPhrase(text) {
-  const lower = String(text).toLowerCase();
+  const lower = String(text).normalize("NFC").toLowerCase();
   for (const { lang, phrase } of ALL_FORBIDDEN) {
-    if (lower.includes(phrase.toLowerCase())) return { lang, phrase };
+    if (lower.includes(phrase.normalize("NFC").toLowerCase())) return { lang, phrase };
   }
   return null;
 }
@@ -111,12 +119,17 @@ function extractStrings(src, file) {
   return out;
 }
 
+// Hooks on Windows pass backslash paths (C:\...\lib\i18n\es.ts); every path check below
+// assumes forward slashes, so normalize once.
+const toPosix = (p) => String(p).replace(/\\/g, "/");
+
 function checkFile(file) {
   const violations = [];
   if (!existsSync(file)) return violations;
   const src = readFileSync(file, "utf8");
   const strings = extractStrings(src, file);
-  const isEnglish = /(^|\/)en\.ts$/.test(file) || /i18n\/en/.test(file) || !/i18n\//.test(file);
+  const path = toPosix(file);
+  const isEnglish = /(^|\/)en\.ts$/.test(path) || /i18n\/en/.test(path) || !/i18n\//.test(path);
 
   for (const { val, isCss } of strings) {
     // Forbidden-phrase check runs on EVERY string (cheap, no false positives on css).
@@ -136,18 +149,58 @@ function checkFile(file) {
 }
 
 // ---- Collect files from argv or JSON stdin (hook mode) ----
-function filesFromStdin() {
-  // Only read stdin when it's piped (a hook pipes JSON). On an interactive TTY
-  // readFileSync(0) would block forever, so skip it and fall back to a default scan.
-  if (process.stdin.isTTY) return [];
+const STDIN_WAIT_MS = 1000;
+
+// Reads stdin without blocking forever: a hook runner may leave stdin open and never write or
+// close it, and a blocking readFileSync(0) would then hang until the hook's 60 s timeout.
+// Resolves with whatever arrived within STDIN_WAIT_MS (or at EOF, whichever is first).
+function readStdinWithTimeout() {
+  if (process.stdin.isTTY) return Promise.resolve("");
+  return new Promise((resolve) => {
+    let data = "";
+    const done = () => {
+      clearTimeout(timer);
+      process.stdin.pause();
+      process.stdin.removeAllListeners();
+      resolve(data);
+    };
+    const timer = setTimeout(done, STDIN_WAIT_MS);
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => (data += chunk));
+    process.stdin.on("end", done);
+    process.stdin.on("error", done);
+  });
+}
+
+// Pulls file paths out of whatever JSON the hook sends. The exact shape Kiro uses isn't
+// documented in this repo, so accept the common keys; `keys` is logged for evidence.
+export function filesFromHookJson(raw) {
+  const text = String(raw).trim();
+  if (!text) return { files: [], keys: [] };
+  let json;
   try {
-    const raw = readFileSync(0, "utf8").trim();
-    if (!raw) return [];
-    const json = JSON.parse(raw);
-    const f = json.filePath || json.file || (json.files ?? []);
-    return Array.isArray(f) ? f : [f].filter(Boolean);
+    json = JSON.parse(text);
   } catch {
-    return [];
+    return { files: [], keys: ["<not json>"] };
+  }
+  if (!json || typeof json !== "object") return { files: [], keys: [] };
+  const input = json.tool_input && typeof json.tool_input === "object" ? json.tool_input : {};
+  const candidates = [json.filePath, json.file, json.path, json.files, json.paths, input.file_path, input.path];
+  const files = candidates
+    .flatMap((c) => (Array.isArray(c) ? c : [c]))
+    .filter((c) => typeof c === "string" && c.trim())
+    .map((c) => c.trim());
+  return { files: [...new Set(files)], keys: Object.keys(json) };
+}
+
+// One line per hook run, so there is a record of what path the hook received and the result
+// (tests/hook-copy-guard.log is gitignored). Never fails the run if the log can't be written.
+const HOOK_LOG = "tests/hook-copy-guard.log";
+function logHookRun(entry) {
+  try {
+    appendFileSync(HOOK_LOG, JSON.stringify({ at: new Date().toISOString(), ...entry }) + "\n");
+  } catch {
+    // ignore: logging is evidence, not a requirement
   }
 }
 
@@ -172,9 +225,21 @@ function defaultScan() {
   ];
 }
 
-function runCli() {
+async function runCli() {
   const args = process.argv.slice(2);
-  let files = args.length ? args : filesFromStdin();
+  const hookMode = args.length === 0;
+  let source = "args";
+  let stdinKeys = [];
+  let files = args;
+  if (hookMode) {
+    const parsed = filesFromHookJson(await readStdinWithTimeout());
+    stdinKeys = parsed.keys;
+    // A path that doesn't exist would otherwise "pass" with 0 strings checked.
+    const missing = parsed.files.filter((f) => !existsSync(f));
+    if (missing.length) console.log(`copy-guard: hook sent path(s) that don't exist: ${missing.map(toPosix).join(", ")}`);
+    files = parsed.files.filter((f) => existsSync(f));
+    source = files.length ? "stdin" : "default-scan";
+  }
 
   // No file from args and none on stdin -> scan everything by default.
   // Never exit 0 "clean" just because no file name was passed.
@@ -182,13 +247,26 @@ function runCli() {
     files = defaultScan();
     if (files.length === 0) {
       console.error("copy-guard: no files given and no copy files found to scan");
+      if (hookMode) logHookRun({ source, stdinKeys, files: 0, violations: null, exit: 2 });
       process.exit(2);
     }
-    console.log(`copy-guard: no file arg; scanning ${files.length} copy file(s) by default`);
+    console.log(
+      `copy-guard: no usable saved-file path${stdinKeys.length ? ` (stdin keys: ${stdinKeys.join(", ")})` : ""}; ` +
+        `scanning all ${files.length} copy file(s)`,
+    );
   }
 
   let all = [];
   for (const f of files) all = all.concat(checkFile(f));
+  if (hookMode) {
+    logHookRun({
+      source,
+      stdinKeys,
+      files: source === "stdin" ? files.map(toPosix) : files.length,
+      violations: all.length,
+      exit: all.length ? 2 : 0,
+    });
+  }
 
   if (all.length === 0) {
     console.log(`copy-guard: OK (${files.length} file(s) checked, no violations)`);
