@@ -3,13 +3,12 @@
   "hooks": [
     {
       "name": "Update docs",
-      "trigger": "UserPromptSubmit",
-      "description": "Manual hook: refresh the README 'How we used Kiro' section and append a dated entry to KIRO_LOG.md. Trigger by submitting a prompt that says 'update docs'.",
-      "matcher": "update docs",
+      "trigger": "Manual",
+      "description": "Manual hook: refresh the README 'How we used Kiro' section and append a dated entry to KIRO_LOG.md. NOTE: v1 has no general-purpose manual invoke, so the actually-runnable version is the manual-inclusion steering command /update-docs (.kiro/steering/update-docs.md). This file documents the intended automation and lists it in the Agent Hooks panel.",
+      "timeout": 60,
       "action": {
         "type": "command",
-        "command": "node tests/update-docs.mjs \"manual update-docs hook\" 2>&1",
-        "timeout": 60
+        "command": "node tests/update-docs.mjs \"manual update-docs hook\" 2>&1"
       }
     }
   ]

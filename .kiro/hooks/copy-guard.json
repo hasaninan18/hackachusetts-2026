@@ -3,13 +3,13 @@
   "hooks": [
     {
       "name": "Copy guard",
-      "trigger": "PostFileSave",
-      "description": "When user-facing copy is saved (lib/i18n/** or component/page text), check English reading grade is 8 or lower and flag forbidden phrases from safety.md (English + Spanish + Portuguese + Haitian Creole + Chinese).",
+      "trigger": "FileSave",
+      "description": "When user-facing copy is saved (lib/i18n/** or component/page text), check English reading grade is 8 or lower and flag forbidden phrases from safety.md (English + Spanish + Portuguese + Haitian Creole + Chinese). If no file path is provided on stdin, the script scans all copy files by default (never a silent pass).",
       "matcher": "(lib/i18n/.*\\.ts$|components/.*\\.(tsx|ts)$|app/.*\\.tsx$)",
+      "timeout": 60,
       "action": {
         "type": "command",
-        "command": "node tests/copy-guard.mjs 2>&1",
-        "timeout": 60
+        "command": "node tests/copy-guard.mjs 2>&1"
       }
     }
   ]

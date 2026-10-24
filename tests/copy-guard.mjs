@@ -10,7 +10,7 @@
 // Exit code 0 = clean, 2 = violation(s) found (so a PreToolUse/Post hook can block/flag).
 // Dependency-free so it runs without node_modules.
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 
 // ---- Forbidden phrases (keep in sync with .kiro/steering/safety.md) ----
 // Matched case-insensitively as substrings of the visible copy.
@@ -64,11 +64,23 @@ const EXEMPT_EXACT = new Set([
   "TrialPath is not medical advice. The study team decides eligibility.",
 ]);
 
+// Looks like a Tailwind/CSS class list or other non-prose token soup, not UI copy.
+// Heuristic: no sentence punctuation AND most "words" contain css-ish chars (-, :, /, digits)
+// or are known utility prefixes. Such strings are skipped for reading-grade only.
+function looksLikeCss(val) {
+  if (/[.!?,](\s|$)/.test(val)) return false; // real sentences have punctuation
+  const tokens = val.split(/\s+/).filter(Boolean);
+  if (tokens.length < 2) return false;
+  const cssish = tokens.filter((t) =>
+    /[:/\[\]]|-\w|^\d|^(flex|grid|inline|items|justify|gap|rounded|border|bg|text|px|py|pt|pb|pl|pr|mx|my|mt|mb|ml|mr|w|h|min|max|font|leading|tracking|shadow|ring|hover|focus|sm|md|lg|xl)[-:]/.test(t)
+  ).length;
+  return cssish / tokens.length >= 0.5;
+}
+
 // Extract user-facing string literals. For .ts dictionary files we grab the
 // right-hand side of `"...": "copy"` and plain string literals in TSX.
 function extractStrings(src, file) {
   const out = [];
-  const isDict = /i18n/.test(file);
   // double- and single-quoted literals (no template-literal parsing needed for copy)
   const re = /(["'])((?:\\.|(?!\1).)*)\1/g;
   let m;
@@ -77,7 +89,7 @@ function extractStrings(src, file) {
     // skip obvious non-copy: import paths, keys, css-ish, short tokens
     if (/^[\w.\-@/]+$/.test(val)) continue;      // identifiers / paths / keys
     if (val.length < 3) continue;
-    out.push(val);
+    out.push({ val, isCss: looksLikeCss(val) });
   }
   return out;
 }
@@ -89,17 +101,19 @@ function checkFile(file) {
   const strings = extractStrings(src, file);
   const isEnglish = /(^|\/)en\.ts$/.test(file) || /i18n\/en/.test(file) || !/i18n\//.test(file);
 
-  for (const s of strings) {
-    const lower = s.toLowerCase();
+  for (const { val, isCss } of strings) {
+    const lower = val.toLowerCase();
+    // Forbidden-phrase check runs on EVERY string (cheap, no false positives on css).
     for (const { lang, phrase } of ALL_FORBIDDEN) {
       if (lower.includes(phrase.toLowerCase())) {
-        violations.push({ file, type: "forbidden-phrase", lang, phrase, text: s });
+        violations.push({ file, type: "forbidden-phrase", lang, phrase, text: val });
       }
     }
-    if (isEnglish && !EXEMPT_EXACT.has(s.trim()) && isGradableSentence(s)) {
-      const grade = readingGrade(s);
+    // Reading-grade only on English prose: skip css/class strings and non-sentences.
+    if (isEnglish && !isCss && !EXEMPT_EXACT.has(val.trim()) && isGradableSentence(val)) {
+      const grade = readingGrade(val);
       if (grade > READING_GRADE_MAX) {
-        violations.push({ file, type: "reading-grade", grade, max: READING_GRADE_MAX, text: s });
+        violations.push({ file, type: "reading-grade", grade, max: READING_GRADE_MAX, text: val });
       }
     }
   }
@@ -108,6 +122,9 @@ function checkFile(file) {
 
 // ---- Collect files from argv or JSON stdin (hook mode) ----
 function filesFromStdin() {
+  // Only read stdin when it's piped (a hook pipes JSON). On an interactive TTY
+  // readFileSync(0) would block forever, so skip it and fall back to a default scan.
+  if (process.stdin.isTTY) return [];
   try {
     const raw = readFileSync(0, "utf8").trim();
     if (!raw) return [];
@@ -119,12 +136,39 @@ function filesFromStdin() {
   }
 }
 
-const args = process.argv.slice(2);
-const files = args.length ? args : filesFromStdin();
+// Default scan targets when the hook sends no file (prevents a silent pass):
+// every copy-bearing file under lib/i18n/, components/, and app/**/*.tsx.
+function walk(dir, test, acc = []) {
+  if (!existsSync(dir)) return acc;
+  for (const name of readdirSync(dir)) {
+    if (name === "node_modules" || name.startsWith(".")) continue;
+    const p = `${dir}/${name}`;
+    const st = statSync(p);
+    if (st.isDirectory()) walk(p, test, acc);
+    else if (test(p)) acc.push(p);
+  }
+  return acc;
+}
+function defaultScan() {
+  return [
+    ...walk("lib/i18n", (p) => p.endsWith(".ts")),
+    ...walk("components", (p) => p.endsWith(".tsx") || p.endsWith(".ts")),
+    ...walk("app", (p) => p.endsWith(".tsx")),
+  ];
+}
 
+const args = process.argv.slice(2);
+let files = args.length ? args : filesFromStdin();
+
+// No file from args and none on stdin -> scan everything by default.
+// Never exit 0 "clean" just because no file name was passed.
 if (files.length === 0) {
-  console.error("copy-guard: no files given");
-  process.exit(0);
+  files = defaultScan();
+  if (files.length === 0) {
+    console.error("copy-guard: no files given and no copy files found to scan");
+    process.exit(2);
+  }
+  console.log(`copy-guard: no file arg; scanning ${files.length} copy file(s) by default`);
 }
 
 let all = [];
