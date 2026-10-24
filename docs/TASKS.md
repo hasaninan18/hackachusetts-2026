@@ -21,6 +21,7 @@ Record completed work/evidence in KIRO_LOG.md; keep assignments here. Owners mus
   - Neil → `app/[lang]/**` pages, `components/**`, styles, `lib/types.ts`, `lib/geo.ts`, `lib/quickCheck.ts`, `lib/i18n/**`, `lib/mock/**`
   - Tests live next to the code (`lib/foo.test.ts`), matching Neil's layout
   - Akash → `.kiro/**`, `tests/**`, `README.md`, `KIRO_LOG.md`
+- **Git identity:** perform PR merges through Hasan's authenticated `hasaninan18` account. Integration commits use his configured identity; do not add Codex/Claude bot identities or co-author trailers. Preserve truthful existing tool-use attribution in logs and docs. Verify the authenticated account before merging.
 - Before every push: `git pull --rebase origin main`. Push small and often.
 - All code is written **in Kiro**. Use specs (`.kiro/specs/`) for each feature. Never commit `.env.local` or the Bedrock key.
 - Every push to `main` auto-deploys to Vercel (project `trialpath-ma`).
