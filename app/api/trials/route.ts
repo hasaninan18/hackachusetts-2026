@@ -7,8 +7,13 @@
 //   validate lat/lon (400, no upstream call if bad)
 //     → normalizeRadius → buildSearchUrl
 //     → cachedFetchJson (10-min cache, keyed by the upstream URL)
-//     → slimStudy(origin) per study → drop nulls → rankBySiteDistance
+//     → slimStudy(origin) per study → drop nulls → withinRadius → rankBySiteDistance
 //     → { trials, total } JSON.
+//
+// The withinRadius step enforces the advertised radius against the CORRECTED nearest-site
+// distance. Upstream `filter.geo` only matches at the study level, so a study can return
+// even when its only recruiting MA site lands outside the requested radius after facility
+// coordinate correction; we drop those and base `total` on the retained count.
 //
 // Upstream failure maps to 502 (bad gateway / non-OK response or network error) or 504
 // (timeout). cachedFetchJson already serves a fresh-enough cache entry without hitting
@@ -23,6 +28,7 @@ import {
   normalizeRadius,
   rankBySiteDistance,
   slimStudy,
+  withinRadius,
 } from "../../../lib/clinicaltrials";
 
 /** How long to wait on the upstream before giving up with a 504. */
@@ -109,10 +115,17 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 
   const studies = Array.isArray(body.studies) ? body.studies : [];
+  // Slim each study to its nearest corrected MA site, drop studies with no qualifying site,
+  // then drop any whose corrected nearest site falls outside the requested radius before
+  // ranking. `radius` is already normalized (>= MIN_RADIUS_MI) above, so the enforced bound
+  // matches the one sent upstream. `total` reflects the retained, in-radius count.
   const trials = rankBySiteDistance(
-    studies
-      .map((study) => slimStudy(study, origin))
-      .filter((summary) => summary !== null),
+    withinRadius(
+      studies
+        .map((study) => slimStudy(study, origin))
+        .filter((summary) => summary !== null),
+      radius,
+    ),
   );
 
   const payload: TrialsResponse = { trials, total: trials.length };

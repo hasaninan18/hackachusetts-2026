@@ -67,10 +67,11 @@ describe("haversineMi properties", () => {
 // steering draft named). We test the true behavior:
 //   * outcome is always one of the two allowed values;
 //   * an age outside [min,max] always yields "ask-team" (the cautious outcome);
-//   * empty / malformed eligibility text never, on its own, yields anything but
-//     "possible-fit" from the text (there is no text rule that can rule you out),
-//     i.e. garbage criteriaText can't manufacture a false "possible-fit" either —
-//     with no reasons it stays "possible-fit", which is the safe "contact the team".
+//   * with no generated questions the outcome is never "possible-fit" (cautious
+//     fallback, docs/TASKS.md + fit-check Requirement 7): "insufficient-info" when the
+//     text has no letter and no digit, "unchecked-criteria" when it has rules that
+//     were not turned into questions; any generated question adds neither; it never
+//     throws on malformed text.
 // ---------------------------------------------------------------------------
 
 const ALLOWED_OUTCOMES = ["possible-fit", "ask-team"] as const;
@@ -154,16 +155,33 @@ describe("quickCheck cross-cutting contract", () => {
           // possible reason is the out-of-range age.
           const r = quickCheck({ age }, e, [], {});
           expect(r.outcome).toBe("ask-team");
+          // No questions also adds a missing-info reason now, so check the age one directly.
+          expect(r.reasons.some((x) => x.kind === (below ? "age-too-young" : "age-too-old"))).toBe(true);
         },
       ),
     );
   });
 
-  it("empty or malformed eligibility text never fabricates a stricter-than-reasons outcome", () => {
-    // criteriaText is free-form junk here; it has no rule attached, so with no other
-    // disqualifier and no answers the outcome must be the safe default, never a crash.
+  // Cautious fallback: fit-check Requirement 7, widened by docs/TASKS.md (Hasan, 14:18) and
+  // fixed in lib/quickCheck.ts by PR #16. With NO generated questions the structured checks
+  // alone never give "possible-fit", and exactly one info reason says why:
+  //   * no usable criteria text (empty, whitespace- or symbols-only)    -> "insufficient-info"
+  //   * criteria text present, but no questions were made from it (simplify failed, timed out,
+  //     is not deployed, or returned none), including the raw registry text the trial page
+  //     passes in. Present text must not read as if the checklist checked it -> "unchecked-criteria"
+  // Real structured mismatches (age / sex / healthy volunteer) are still reported next to it.
+
+  // Both branches' versions of this property, combined: it still guards against crashes on
+  // free-form junk (akash/kiro), and now asserts the cautious outcome and reason (PR #16).
+  it("empty or malformed eligibility text never throws, and with no questions is never possible-fit", () => {
+    const junkArb = fc.oneof(
+      fc.constant(""),
+      fc.constantFrom(" ", "\n\t ", "--- / . , ; ***"), // whitespace- and symbols-only
+      fc.string(),
+      fc.string({ unit: "binary" }),
+    );
     fc.assert(
-      fc.property(fc.oneof(fc.constant(""), fc.string({ unit: "binary" })), (junk) => {
+      fc.property(junkArb, (junk) => {
         const e: Eligibility = {
           minAgeYears: null,
           maxAgeYears: null,
@@ -172,11 +190,110 @@ describe("quickCheck cross-cutting contract", () => {
           criteriaText: junk,
         };
         const r = quickCheck({}, e, [], {});
-        expect(ALLOWED_OUTCOMES).toContain(r.outcome);
-        // nothing to rule out -> possible-fit (the "contact the team" safe outcome),
-        // and crucially it never throws on malformed text.
-        expect(r.outcome).toBe("possible-fit");
+        expect(r.outcome).toBe("ask-team");
+        const kind = /[\p{L}\p{N}]/u.test(junk) ? "unchecked-criteria" : "insufficient-info";
+        expect(r.reasons).toEqual([{ kind }]);
       }),
+    );
+  });
+
+  // Was `it.fails` on akash/kiro: the Req 7 gap on the old lib/quickCheck.ts (counterexample
+  // "--- / . , ; ***" gave "possible-fit"). PR #16 fixes that, so it is now a normal test.
+  it("Req 7: empty/letterless criteria with no questions is ask-team with insufficient-info", () => {
+    const emptyish = fc.oneof(
+      fc.constant(""),
+      fc.constant("   \n\t "),
+      fc.constant("--- / . , ; ***"),
+      // strings that, after trimming, contain no letters and no digits
+      fc.string({ unit: "binary" }).filter((s) => !/[\p{L}\p{N}]/u.test(s)),
+    );
+    fc.assert(
+      fc.property(emptyish, (criteriaText) => {
+        const e: Eligibility = {
+          minAgeYears: null,
+          maxAgeYears: null,
+          sex: "ALL",
+          healthyVolunteers: true,
+          criteriaText,
+        };
+        const r = quickCheck({}, e, [], {});
+        expect(r.outcome).toBe("ask-team");
+        expect(r.reasons).toEqual([{ kind: "insufficient-info" }]);
+      }),
+    );
+  });
+
+  // Hasan's PR #16 repro as a property: each demo trial's real registry criteria, no generated
+  // questions, and a profile that passes every structured check (age in range, a sex the study
+  // takes, has the condition). The old code said "possible-fit" here.
+  it("criteria text with no generated questions is ask-team with unchecked-criteria, even real registry text", () => {
+    const passingArb = fc.constantFrom(...mockTrials).chain((t) => {
+      const { minAgeYears, maxAgeYears, sex } = t.eligibility;
+      return fc.record({
+        eligibility: fc.constant(t.eligibility),
+        profile: fc.record(
+          {
+            age: fc.integer({ min: minAgeYears ?? 0, max: maxAgeYears ?? 120 }),
+            sex: sex === "ALL" ? fc.constantFrom("FEMALE", "MALE" as const) : fc.constant(sex),
+            healthy: fc.constant(false),
+          },
+          { requiredKeys: [] },
+        ),
+      });
+    });
+    fc.assert(
+      fc.property(passingArb, ({ eligibility, profile }) => {
+        const r = quickCheck(profile, eligibility, [], {});
+        expect(r.outcome).toBe("ask-team");
+        expect(r.reasons).toEqual([{ kind: "unchecked-criteria" }]);
+      }),
+    );
+    // Any other text with a letter or digit, in any script, takes the same path.
+    fc.assert(
+      fc.property(
+        fc.string().filter((s) => /[\p{L}\p{N}]/u.test(s)),
+        (criteriaText) => {
+          const e: Eligibility = {
+            minAgeYears: null,
+            maxAgeYears: null,
+            sex: "ALL",
+            healthyVolunteers: true,
+            criteriaText,
+          };
+          expect(quickCheck({}, e, [], {})).toEqual({
+            outcome: "ask-team",
+            reasons: [{ kind: "unchecked-criteria" }],
+          });
+        },
+      ),
+    );
+  });
+
+  it("with no generated questions, every structured mismatch reason is kept next to the info reason", () => {
+    // One question answered "not sure" can't rule anyone out and removes the info reason, so
+    // its reasons are exactly the structured ones (age / sex / healthy volunteer).
+    const probe: FitQuestion[] = [{ id: "probe", text: "Any other rule?", ruleOutIf: "yes" }];
+    fc.assert(
+      fc.property(profileArb, eligibilityArb, (p, e) => {
+        const structured = quickCheck(p, e, probe, { probe: "unsure" }).reasons;
+        const kind = /[\p{L}\p{N}]/u.test(e.criteriaText) ? "unchecked-criteria" : "insufficient-info";
+        const r = quickCheck(p, e, [], {});
+        expect(r.outcome).toBe("ask-team");
+        expect(r.reasons).toEqual([...structured, { kind }]);
+      }),
+    );
+  });
+
+  it("any generated question means neither missing-info reason fires", () => {
+    fc.assert(
+      fc.property(
+        eligibilityArb,
+        questionsArb.filter((qs) => qs.length > 0),
+        (e, qs) => {
+          const r = quickCheck({}, e, qs, answersFor(qs, "unsure"));
+          expect(r.reasons.filter((x) => x.kind === "insufficient-info" || x.kind === "unchecked-criteria")).toEqual([]);
+        },
+      ),
     );
   });
 });

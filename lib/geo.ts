@@ -20,15 +20,24 @@ export function formatMiles(mi: number): string {
   return mi < 0.1 ? "< 0.1" : mi < 10 ? mi.toFixed(1) : Math.round(mi).toString();
 }
 
-export function transitDirectionsUrl(
-  dest: { lat: number; lon: number },
-  origin?: { lat: number; lon: number },
-): string {
+type Point = { lat: number; lon: number };
+
+// Google Maps directions deep link (no API key). Only coordinates go into the URL.
+function directionsUrl(travelmode: "transit" | "driving", dest: Point, origin?: Point): string {
   const params = new URLSearchParams({
     api: "1",
     destination: `${dest.lat},${dest.lon}`,
-    travelmode: "transit",
+    travelmode,
   });
   if (origin) params.set("origin", `${origin.lat},${origin.lon}`);
   return `https://www.google.com/maps/dir/?${params}`;
+}
+
+export function transitDirectionsUrl(dest: Point, origin?: Point): string {
+  return directionsUrl("transit", dest, origin);
+}
+
+// The no-transit fallback (structure.md "No transit stop nearby"; getting-there spec N1).
+export function drivingDirectionsUrl(dest: Point, origin?: Point): string {
+  return directionsUrl("driving", dest, origin);
 }

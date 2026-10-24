@@ -1,8 +1,8 @@
 import "server-only";
 import { headers } from "next/headers";
-import { haversineMi } from "./geo";
 import { parseOutcomes, type TrialDetailWithOutcomes } from "./outcomes";
-import { getMockTrial, mockTrials } from "./mock/data";
+import { getMockTrial } from "./mock/data";
+import { searchMockTrials } from "./mock/search";
 import type { Eligibility, Site, TrialSummary, TrialsResponse } from "./types";
 
 // Pages talk to the backend only through the HTTP contract in lib/types.ts, so Hasan's
@@ -28,30 +28,7 @@ export interface TrialQuery {
 }
 
 export async function getTrials(q: TrialQuery, mock: boolean): Promise<TrialsResponse> {
-  if (mock) {
-    const term = q.cond.toLowerCase();
-    const trials = mockTrials
-      .map((t) => ({
-        ...t,
-        distanceMi: haversineMi(q.lat, q.lon, t.nearestSite.lat, t.nearestSite.lon),
-      }))
-      .filter(
-        (t) =>
-          t.distanceMi <= q.radius &&
-          (t.conditions.some((c) => c.toLowerCase().includes(term)) ||
-            t.title.toLowerCase().includes(term)),
-      )
-      .sort((a, b) => a.distanceMi - b.distanceMi)
-      .map(({ nctId, title, conditions, phase, nearestSite, distanceMi }) => ({
-        nctId,
-        title,
-        conditions,
-        phase,
-        nearestSite,
-        distanceMi,
-      }));
-    return { trials, total: trials.length };
-  }
+  if (mock) return searchMockTrials(q);
 
   const params = new URLSearchParams({
     cond: q.cond,
@@ -111,9 +88,16 @@ function toDetail(body: unknown): TrialDetailWithOutcomes {
   };
 }
 
-export async function getTrial(nctId: string, mock: boolean): Promise<TrialDetailWithOutcomes | null> {
+// `origin` is the search location. The detail route then picks the site nearest to it (the
+// same site the results list showed) instead of the study's first Massachusetts site.
+export async function getTrial(
+  nctId: string,
+  mock: boolean,
+  origin?: { lat: number; lon: number },
+): Promise<TrialDetailWithOutcomes | null> {
   if (mock) return getMockTrial(nctId) ?? null;
-  const res = await fetch(`${await apiBase()}/api/trials/${encodeURIComponent(nctId)}`, {
+  const qs = origin ? `?${new URLSearchParams({ lat: String(origin.lat), lon: String(origin.lon) })}` : "";
+  const res = await fetch(`${await apiBase()}/api/trials/${encodeURIComponent(nctId)}${qs}`, {
     cache: "no-store",
   });
   if (res.status === 404) return null;

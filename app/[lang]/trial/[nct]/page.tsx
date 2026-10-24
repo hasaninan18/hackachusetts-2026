@@ -19,7 +19,11 @@ type Props = PageProps<"/[lang]/trial/[nct]">;
 type SearchParams = Awaited<Props["searchParams"]>;
 
 // generateMetadata and the page both need the trial; cache() makes it one lookup per request.
-const loadTrial = cache((nct: string, mock: boolean) => getTrial(nct, mock));
+// Plain numbers (not an object) so both calls hit the same cache entry. The origin lets the API
+// pick the site nearest the person, matching the site the results list showed.
+const loadTrial = cache((nct: string, mock: boolean, lat?: number, lon?: number) =>
+  getTrial(nct, mock, lat !== undefined && lon !== undefined ? { lat, lon } : undefined),
+);
 
 // Reads params/searchParams, so under Cache Components this runs at request time. That is fine
 // here: the page body already defers to request time inside <Suspense>, so the metadata simply
@@ -32,8 +36,9 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
   if (!isLang(lang) || !NCT_RE.test(nct)) return fallback;
 
   const sp = await searchParams;
+  const origin = searchOrigin(sp);
   try {
-    const trial = await loadTrial(nct, wantsMocks(sp.mock));
+    const trial = await loadTrial(nct, wantsMocks(sp.mock), origin?.lat, origin?.lon);
     if (!trial) return fallback;
     // `absolute` skips the layout's "%s · TrialPath MA" template, which would add the name twice.
     return { title: { absolute: `${trial.title} (${nct}) · ${APP_NAME}` }, description };
@@ -61,8 +66,7 @@ async function Trial({ params, searchParams }: Props) {
   const sp = await searchParams;
   const mock = wantsMocks(sp.mock);
   const search = parseSearch(sp);
-  // `from=lat,lon` (older links) wins; otherwise the search location is the directions origin.
-  const origin = parseOrigin(sp.from) ?? (search ? { lat: search.lat, lon: search.lon } : undefined);
+  const origin = searchOrigin(sp);
   const dict = getDictionary(lang);
   const t = translator(dict);
   const homeHref = mock ? `/${lang}?mock=1` : `/${lang}`;
@@ -99,7 +103,7 @@ async function Trial({ params, searchParams }: Props) {
 
   let trial: TrialDetailWithOutcomes | null;
   try {
-    trial = await loadTrial(nct, mock);
+    trial = await loadTrial(nct, mock, origin?.lat, origin?.lon);
   } catch (err) {
     unstable_rethrow(err);
     console.error(err);
@@ -132,14 +136,17 @@ async function Trial({ params, searchParams }: Props) {
   // Trial facts come from ClinicalTrials.gov in English; mark them so screen readers switch voice.
   const enLang = lang !== "en" ? "en" : undefined;
   const site = trial.nearestSite;
-  // Only the structured fields the quick check uses go to the browser, not the full criteria text.
-  const { minAgeYears, maxAgeYears, sex, healthyVolunteers } = trial.eligibility;
+  // The quick check needs the real criteria text. With no questions (the model failed or made
+  // none) it never says "possible fit", and the text decides which reason it gives: the study
+  // listed no rules, or it has rules we could not ask about. Blanking it here made every
+  // trial look like it listed no rules.
+  const { minAgeYears, maxAgeYears, sex, healthyVolunteers, criteriaText } = trial.eligibility;
   const eligibility: Eligibility = {
     minAgeYears,
     maxAgeYears,
     sex,
     healthyVolunteers,
-    criteriaText: "",
+    criteriaText,
   };
 
   return (
@@ -177,6 +184,7 @@ async function Trial({ params, searchParams }: Props) {
 
       <ContactCard
         nctId={trial.nctId}
+        title={trial.title}
         contacts={trial.contacts}
         t={t}
         printLabel={t("contact.print")}
@@ -213,6 +221,13 @@ function parseSearch(sp: SearchParams) {
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return undefined;
   if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return undefined;
   return { cond, lat, lon, latRaw, lonRaw, radius };
+}
+
+// The person's search location: picks the nearest site and is the directions origin.
+// `from=lat,lon` (older links) wins; otherwise the search's lat/lon.
+function searchOrigin(sp: SearchParams): { lat: number; lon: number } | undefined {
+  const search = parseSearch(sp);
+  return parseOrigin(sp.from) ?? (search ? { lat: search.lat, lon: search.lon } : undefined);
 }
 
 // `from=lat,lon` is the user's search location, used as the transit-directions origin.

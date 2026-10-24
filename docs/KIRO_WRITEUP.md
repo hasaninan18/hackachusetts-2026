@@ -39,6 +39,12 @@ We used Kiro across more than one surface, and the log is explicit about which d
 The CLI run's 5 failures were the empty non-English dictionaries; those dictionaries are now filled
 and the merged `main` suite is green (see "Integrated snapshot & attribution").
 
+**How the surfaces differed.** The **IDE** was where we built: specs, steering, hooks, MCP, and the
+Power. The **CLI** ran the test suite from a terminal. **Crew** reviewed our safety checks in
+read-only sessions — its review found **nine gaps in the safety section of our QA checklist, which
+we then fixed**. In short: the IDE built things; the CLI and Crew checked them from outside the
+editing loop.
+
 ---
 
 ## 2. Spec-driven vs vibe coding
@@ -77,12 +83,15 @@ A fourth spec, **`.kiro/specs/trialpath-ui/`, is a retrospective spec written in
 not proof of Kiro-authored spec-first development**." We do not count it as evidence of spec-first
 Kiro development.
 
-The pattern across the three Kiro specs: **spec-driven, grounded, and honest about gaps** — each
-separates "what the code does today" from "what's proposed," and defers owner-file edits to a PR.
+**What writing the specs surfaced.** Writing the **fit-check** spec exposed that our steering doc
+describes **three** quick-check outcomes while the code has **two**. We hadn't noticed before, and
+it's still an **open team decision**.
 
-Vibe coding: **TODO.** The log does not attribute specific feature code to an unstructured
-("vibe") Kiro session, so we don't claim a vibe-vs-spec split beyond "specs covered the
-safety-critical features."
+One spec — for the **UI** (`trialpath-ui`) — was written **after** the code, as a retrospective, so
+we **cannot claim spec-first there**.
+
+**Vibe coding.** We did **not** build a vibe-coded version to compare against, so we **cannot
+measure the difference** between spec-driven and vibe coding.
 
 ---
 
@@ -161,6 +170,12 @@ TS union) was replaced with behavioral invariants, the forbidden-phrase list was
 and required to run on **cached translations**, and the "Chinese" ambiguity was resolved to
 **Simplified Chinese**.
 
+**One source, three enforcers.** We wrote the safety rules once in `safety.md`: no eligibility
+claims, forbidden phrases per language, a verbatim disclaimer, an 8th-grade reading level, and
+answers staying in the browser. Kiro read that file on every chat. The **same rules** fed the
+**copy-guard hook** and the **property tests**, so the steering doc, the hook, and the tests all
+enforce **one source**.
+
 ---
 
 ## 5. MCP
@@ -204,19 +219,19 @@ added with the Vietnamese work):
   Unicode; appending any forbidden phrase to any string always flags it regardless of surrounding
   casing/whitespace; and each Vietnamese phrase is detected and tagged `lang="vi"`.
 
-Findings the properties surfaced (about the code shape, not property failures):
+**A property test caught a real bug.** Our older **unit** test locked in `possible-fit` for empty
+criteria — **that was the bug**. The **property** test generated empty and no-letter criteria and
+**failed**, and that failure **exposed the gap**. We recorded it as an **expected failure**; the fix
+is in **PR #16 (under review)**, and we'll convert it to a normal passing test once it's integrated.
+
+Other findings the properties surfaced (about the code shape):
 
 - `parseAge`, `rankBySiteDistance`, and `readingGrade` **don't exist as pure `lib/` functions** on
   `main`, so the guard's own `readingGrade` (in `tests/`) was exported and tested instead.
 - The steering docs describe three `quickCheck` outcomes (`possible-fit` / `may-rule-out` /
   `not-sure`), but the real code returns only `possible-fit` / `ask-team`; tests were written
   against the **real two-outcome contract**. This two-vs-three mismatch is an **open decision still
-  to be settled with the team** — do the steering docs come down to two outcomes, or does the code
-  grow a third? Until that's resolved, the tests follow the code.
-
-> **Honest note — no property failed.** The log is explicit: all 16 passed and **no counterexample
-> was found.** The properties document and lock in today's real behavior and catch no-throw /
-> safety invariants; they did **not** catch a live bug in this run. We don't claim otherwise.
+  to be settled with the team**.
 
 ---
 
@@ -235,9 +250,10 @@ fast-check ^4.10.2). The log records 6 real calls that reviewed:
   "binary" })` form (replacing v3 `fc.fullUnicodeString()`) are current, and we already use the new
   form.
 
-> **Honest note — Context7 found no problems.** The net result in the log is that proxy.ts, the
-> `[lang]` routing, and the fast-check usage all match current conventions for the installed
-> versions, and **no code was changed** — it was a docs-grounded review only, not a bug fix.
+> **Honest note — used, not decisive.** We installed and used **Context7 for library
+> documentation**, but we **did not observe it change a design decision**, so we report it as
+> **used, not decisive**. (The net result was that proxy.ts, the `[lang]` routing, and the
+> fast-check usage all matched current conventions, and no code was changed.)
 
 **Other Powers:** **TODO.** The log records only the Context7 Power; no other Power is documented.
 
@@ -275,8 +291,9 @@ Kept front-and-center because they're the truthful version of the story:
 1. **Hook firing on a real save was never confirmed.** The IDE showed both hooks trigger on **agent
    file writes**, but a **manual-save trigger was not separately observed** and the **hook output
    panel text was not captured**. A real manual on-save fire + panel screenshot is still **TODO**.
-2. **No property failed** — all 16 fast-check properties passed; no counterexample found. They lock
-   in existing behavior rather than having caught a live bug this run.
+2. **A property test caught a real bug** — it failed on empty / no-letter criteria (the
+   `possible-fit` bug an older unit test had locked in) and was recorded as an expected failure; the
+   fix is in PR #16 (under review) and will become a normal passing test once integrated.
 3. **Context7 found no problems** — the Powers review confirmed our conventions and changed no code.
 4. **fetch MCP was blocked by robots.txt** on ClinicalTrials.gov until `--ignore-robots-txt` was
    added **and** the fetch server restarted.

@@ -378,6 +378,23 @@ export function toDetail(
 }
 
 /**
+ * Keep only trials whose nearest-site `distanceMi` is a finite number within `radiusMi`
+ * (the normalized requested radius). ClinicalTrials.gov's `filter.geo` matches at the
+ * STUDY level, so a study can come back even when its only qualifying recruiting MA site —
+ * after {@link correctSite} coordinate correction and {@link nearestSite} selection — sits
+ * outside the advertised radius. This closes that gap so results honor the UI's promise.
+ *
+ * Boundary: the comparison is `<= radiusMi`, so a site exactly on the boundary is kept.
+ * Guard: non-finite distances (`NaN`/`Infinity`) are dropped — a missing/garbage geoPoint
+ * must never slip through a numeric comparison. Returns a COPY; does not sort. Total.
+ */
+export function withinRadius(trials: TrialSummary[], radiusMi: number): TrialSummary[] {
+  return trials.filter(
+    (trial) => Number.isFinite(trial.distanceMi) && trial.distanceMi <= radiusMi,
+  );
+}
+
+/**
  * Return a sorted COPY of `trials`, ascending by `distanceMi` (Requirement 4.3). Stable for
  * ties via an index tiebreaker so equal-distance trials keep their input order. Total.
  */
