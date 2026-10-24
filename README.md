@@ -20,7 +20,7 @@
 - Amazon Bedrock — plain-language rewriting, question generation, translation
 
 ## Team plan
-👉 **Full plan, roles, timeline, and Kiro prompts: [docs/PLAN.md](docs/PLAN.md)**
+👉 **Start here: [docs/TASKS.md](docs/TASKS.md)** (who does what + Kiro prompts) · Full plan: [docs/PLAN.md](docs/PLAN.md)
 
 ## Run it
 _TBD_
