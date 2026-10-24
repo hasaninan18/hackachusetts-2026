@@ -12,6 +12,28 @@ Format: `- [time] <area> — what Kiro did / what it caught / why it mattered`
 
 ## Specs
 <!-- e.g. - [time] spec:trial-search — generated EARS requirements; design; N tasks. -->
+- [2026-10-24] spec:fit-check — Generated EARS-format requirements only (`.kiro/specs/fit-check/requirements.md`), grounded in `lib/quickCheck.ts`, `lib/quickCheck.test.ts`, `components/QuickCheck.tsx`, `components/FitResult.tsx`, and `.kiro/steering/safety.md`. Pinned the outcomes to the two values the code returns today (`possible-fit` / `ask-team`) and the real `FitReason.kind` set; encoded the safety.md guardrails (never claim eligibility + forbidden phrases, ≤8th-grade copy, answers stay in-browser, verbatim disclaimer). Flagged that "show the original criterion beside each question" (Req 4) is new behavior — today's `FitQuestion` is `{id,text,ruleOutIf}` with no source-criterion field — so it implies an additive optional field, not a change to the decision logic.
+- [2026-10-24] spec:getting-there — Authored EARS requirements, design, and tasks for the `getting-there` feature (`.kiro/specs/getting-there/{requirements,design,tasks}.md`), grounded in `components/GettingThere.tsx`, `components/LineChip.tsx`, `lib/geo.ts`, `lib/data.ts`, `lib/types.ts`, `lib/i18n/en.ts`, `.kiro/steering/{structure,safety}.md`, and the live MBTA probe already recorded in this log. Marked the **12 tasks the existing code already satisfies** `[x]` with the file that satisfies each: three-nearest `walkMi` slice, name/lines/`formatMiles` rendering, line-row omitted when empty, `LineChip` `aria-hidden` swatch with `#7C878E` hex fallback, `go.approx` for non-facility sites, the `<Access>` accessible/not/unknown render, the ♿ `aria-hidden` icon whose meaning is carried by adjacent visible text (structure.md), the Google Maps **transit** link (`transitDirectionsUrl`, new tab, `rel="noopener noreferrer"`, ≥44 px), the `go.noStops` empty message, malformed-stop dropping in `lib/data.ts` `toDetail`, ≤8th-grade `go.*` copy, and coordinates-only privacy. Catalogued **5 known gaps** not implemented on main: **G1** no MBTA fetch/shaping layer (no `lib/mbta.ts`, no `/api/trials/[nct]` route — so the `/stops` call, miles→degrees at the boundary, `location_type` 0/1-keep vs 2/3/4-drop filter, name de-duplication, line merge, `wheelchair_boarding`→`boolean|null` mapping, and `walkMi` are all absent); **G2** no page-size limit on the ~161 KB / 261-raw-stop payload; **G3** no stop-specific loading/`aria-busy` or MBTA-failure fallback wired in; **G4** no `drivingDirectionsUrl` (only `transitDirectionsUrl` exists, so the no-transit state still points at the transit link); **G5** no i18n key for the driving link. **The MBTA fetch does not exist on `main`** — the `Stop[]` is consumed by the UI today but produced by a route that isn't in the tree. Put the owner drafts (MBTA client + pure `shapeStops`/`milesToMbtaDegrees`/`wheelchairFrom`, the route wiring, `drivingDirectionsUrl`, the `GettingThere` empty-state diff, the `go.drivingDirections` key) in design.md using the real probe field shapes (coords in `attributes.latitude/longitude`; `wheelchair_boarding` 1/2 seen, 0/missing→`null`), and grouped the open tasks by owner — Hasan (`lib/mbta.ts`, `app/api/**`), Neil (`lib/geo.ts`, `components/**`, `lib/i18n/**`), Akash (`tests/**`, this log). Nothing in `lib/`, `app/`, or `components/` was edited. Noted that TASKS.md step 3 assigns the whole spec to Hasan, but G4/G5 fall in Neil-owned files per structure.md, so those tasks went to Neil.
+## Spec: translation (requirements)
+
+Created `.kiro/specs/translation/requirements.md` — EARS requirements only, no design/tasks yet.
+Grounded the spec in existing code: `lib/simplify.ts` (+ `simplify.test.ts`), `lib/i18n/`
+(`en.ts`, `dictionaries.ts`, `index.ts`), `lib/phone.ts`, and `tests/copy-guard.mjs`, against
+`.kiro/steering/safety.md`.
+
+Scope: translate the plain-language card (`whatItStudies`, `whatYouDo`, `timeCommitment`) and the
+quick-check question text into Spanish, Portuguese, Haitian Creole, and Simplified Chinese; cache
+per (NCT id, language); preserve NCT IDs / phone numbers / emails verbatim; label everything
+machine-translated; run the forbidden-phrase check on every translation before caching.
+
+9 requirements. Marked satisfied-today behaviors inline (parseSimplified normalizes + rejects
+untrusted payloads and carries lang through; findForbiddenPhrase already covers es/pt/ht/zh;
+getDictionary falls back to English; HTML_LANG uses zh-Hans). Marked known gaps inline:
+dictionaries.ts translation maps are all empty (so fit.* / trial.* labels still render in English),
+and there is no translation call, no (NCT id, language) cache, no machine-translated signal, and no
+forbidden-phrase gate wired into translation output yet. Did not modify KIRO_LOG.md (added by hand).
+
+- [2026-10-24] spec:fit-check FINDING + DECISION — Observed a safety gap: `lib/quickCheck.ts` returns `possible-fit` whenever `reasons.length === 0`, which includes the case where the eligibility text was empty/whitespace-only and produced no questions. safety.md says an absence of info should be the cautious outcome, so that case should be `ask-team`. **Decision:** change it, but `reasons.length` alone can't distinguish "answered everything, nothing ruled me out" (keep `possible-fit`) from "no criteria, no questions" (should be `ask-team`), so it needs a distinct reason (`insufficient-info`), which also touches `FitReason`, `components/FitResult.tsx`, and a new `lib/i18n/en.ts` key. **This code change is Neil's** (owner of `lib/` + `components/` + i18n per structure.md) and lands via PR — not edited here. Updated fit-check Requirement 7 to state the target behavior, and drafted the exact diff + test as a "Proposed change for the owner" section in the fit-check design for whoever takes the PR.
 
 ## Hooks
 - [Step 3] hooks — Built 3 agent hooks in `.kiro/hooks/` (+ backing scripts in `tests/`):
@@ -41,6 +63,56 @@ Format: `- [time] <area> — what Kiro did / what it caught / why it mattered`
     - `contactsLocationsModule.locations[].geoPoint` — present on **all 10 locations across the 5 studies** (0 without). Real example: Boston, MA → `{lat: 42.35843, lon: -71.05977}`; Lexington, MA → `{lat: 42.44732, lon: -71.2245}`.
     - `centralContacts` — present on 4 of 5; real example NCT05663151: name "Suzanne Pineles, PhD", role "CONTACT", phone "857-364-5906", email "suzanne.pineles@va.gov".
   - **CT.gov edge cases actually seen:** missing `maximumAge` — **YES** (3 of 5 studies had no `maximumAge` key). Missing `centralContacts` — **YES** (NCT07104331 had none). "N/A" string — **NOT seen** (absent fields were simply omitted keys, not "N/A"). "No maximum" string — **NOT seen**. No `geoPoint` — **NOT seen** (all 10 locations had one). Missing `minimumAge` — **NOT seen** (all 5 had it).
+
+## Kiro Powers
+- [2026-10-24 ~17:1x UTC] power:context7 RAN — Used the **Context7** Power (MCP server `context7`, tools `resolve-library-id` + `query-docs`) to check our code against current docs for the exact installed versions (Next.js 16.4.3, fast-check ^4.10.2 from package.json). 6 real calls: resolved `/vercel/next.js` (used the version-pinned `/vercel/next.js/v16.2.9`, nearest available to 16.4.3) and `/dubzzz/fast-check`, then queried proxy.ts, generateStaticParams/typed route props, fast-check `fc.assert`/`fc.property`, and `fc.string` constraints. Questions it answered + findings:
+  - **Q1 proxy.ts convention.** Docs confirm Next 16 renamed `middleware.ts` → **`proxy.ts`** exporting a `proxy(request: NextRequest)` function with a `config.matcher`. Our `proxy.ts` matches the current convention (named `proxy` export, `NextRequest`, `config.matcher`) — **no problems found**. (Note: `matcher` accepts a single string or an array; our array form with a negative-lookahead regex is valid.)
+  - **Q2 [lang] routing + generateStaticParams.** Docs confirm async `params` is a **Promise** that must be awaited, `generateStaticParams` returns the param list, and `PageProps<'/route'>`/`LayoutProps<'/route'>` are the current typed helpers. Our `app/[lang]/layout.tsx:36-45` (`generateStaticParams` returning `LANGS.map(lang => ({ lang }))`, `await params`, `LayoutProps<"/[lang]">`) and `app/[lang]/page.tsx` + `app/[lang]/trial/[nct]/page.tsx` (`PageProps<...>`, `await params`/`await searchParams`) all follow the current convention — **no problems found**. `[nct]` intentionally has no `generateStaticParams` and reads params inside `<Suspense>`, which matches the request-time/Cache-Components guidance.
+  - **Q3 fast-check API.** Docs confirm `fc.assert(fc.property(...arbitraries, predicate))` and `fc.string()` are current. Our `tests/safety.property.test.ts` and `tests/copy-guard.property.test.mjs` use `fc.assert`/`fc.property`/`fc.string` correctly. `fc.string({ unit: "binary" })` and `fc.string({ minLength, maxLength })` are the **current v4** forms (the v3 `fc.fullUnicodeString()` was replaced by `fc.string({ unit: "binary" })` — we already use the new form) — **no deprecated or incorrect usage found**.
+  - Net: proxy.ts, the `[lang]` routing, and the fast-check usage in `tests/` all match current conventions for the installed versions. No code changed (per instructions, `lib/`, `app/`, `components/`, `.kiro/specs/translation/` untouched); this was a docs-grounded review only.
+
+## Spec: translation (design + tasks)
+
+Added `.kiro/specs/translation/design.md` and `tasks.md`. Did not touch `lib/`, `app/`, or `components/`; all code lives as drafts inside design.md. Tab 2 did not modify KIRO_LOG.md (this entry was added by hand).
+
+**Design:** architecture flow (POST /api/simplify?lang → cache → mask tokens → Bedrock translate → restore → verify → parseSimplified → forbidden-phrase gate → cache). It includes a "what the current code already provides" table, requirements traceability, a "Known gaps" section, and a "Proposed change for the owner" section.
+
+Known gaps:
+- no translation call
+- no (NCT id, language) cache
+- no machine-translated flag
+- forbidden-phrase gate not wired to translation output
+- empty `dictionaries.ts` maps
+
+Proposed drafts:
+- `lib/preserveTokens.ts`: placeholder-token mask/restore/verify for NCT ids, emails and phones. `verifyTokens` fails if any identifier set differs (swap out before translating, restore after).
+- `lib/bedrock.ts`: Converse call, Nova 2 Lite primary with Nova Pro fallback, using the real tech.md env vars (AWS_BEARER_TOKEN_BEDROCK, AWS_REGION=us-east-2, BEDROCK_MODEL_ID, BEDROCK_FALLBACK_MODEL_ID). No Claude.
+- `app/api/simplify/route.ts`: module-scope Map cache keyed `${nctId}:${lang}`, screen-before-cache via `findForbiddenPhrase`, English fallback on any failure.
+- `lib/types.ts`: optional `machineTranslated?: boolean` flag, plus a badge (Neil).
+- `lib/i18n/dictionaries.ts`: fill the empty es/pt/ht/zh trial.* and fit.* maps (Neil).
+
+Ownership follows structure.md: Hasan has app/api, lib/bedrock and lib/simplify; Neil has lib/types, lib/i18n and components; Akash has tests and .kiro.
+
+**Tasks:** 8 marked done against the code that satisfies them (parseSimplified normalize/reject/lang carry-through, the findForbiddenPhrase 4-language checker, telHref, the getDictionary English fallback, zh-Hans). Open tasks are grouped by owner:
+- Hasan H1-H5: token helper, Bedrock call, cache and gate route, forbidden re-export, demo pre-warm
+- Neil N1-N5: flag, badge, badge key, fill dictionaries, disclaimer and contact on translated view
+- Akash A1-A4: token and screen-before-cache property tests, spec authored, vi forbidden-phrase equivalents before vi ships, post-merge log
+
+Each task is tied to requirement IDs.
+
+## QA checklist
+
+Created `docs/QA_CHECKLIST.md`, the pre-demo hand-check. Did not touch lib/, app/, components/ or .kiro/specs/. Tab 2 did not modify KIRO_LOG.md (this entry was added by hand).
+
+Contents:
+- A 15-row eligibility hand-check table: NCT ID, original eligibility summary, generated questions, accurate yes/no, error type (dropped exclusion / invented criterion / wrong age), notes. Rows are blank, with a roll-up tally.
+- Live URL checklists for phone, incognito and venue Wi-Fi.
+- A per-language native-speaker read for en/es/pt/ht/zh, including the Simplified Chinese label and the machine-translated label.
+- Empty and error states: no trials found, no nearby stop, API rate limit or timeout, LLM failure, loading.
+- Keyboard and screen-reader accessibility: tab order, focus, contrast, color-not-alone, 44px tap targets, wheelchair icon text, lang marking.
+- Safety checks: no "eligible" or "qualify" in any language (with the safety.md non-English equivalents), exact disclaimer present, contact present, NCT/phone/email verbatim across languages, answers stay in the browser.
+
+Grounded in .kiro/steering/safety.md. Rows and boxes are blank for the team to fill during QA.
 
 ## Property-based tests (fast-check)
 <!-- e.g. - [time] pbt:quickCheck — property "never returns eligible" caught a branch that returned 'eligible' for empty criteria. -->
