@@ -375,14 +375,22 @@ function client(): BedrockRuntimeClient {
   sharedClient = new BedrockRuntimeClient({ region: process.env.AWS_REGION });
   return sharedClient;
 }
-/** Build a real Converse function backed by the Bedrock SDK. */
-export function makeConverse(injected?: BedrockRuntimeClient): Converse {
+/**
+ * Build a real Converse function backed by the Bedrock SDK. `maxTokens` defaults to the
+ * simplify budget (1500); the title-translation route asks for more because one call
+ * returns a whole batch of titles.
+ */
+export function makeConverse(
+  injected?: BedrockRuntimeClient,
+  options: { maxTokens?: number } = {},
+): Converse {
+  const maxTokens = options.maxTokens ?? 1500;
   return async (modelId, prompt, signal) => {
     const command = new ConverseCommand({
       modelId,
       system: [{ text: prompt.system }],
       messages: [{ role: "user", content: [{ text: prompt.user }] }],
-      inferenceConfig: { maxTokens: 1500, temperature: 0.2 },
+      inferenceConfig: { maxTokens, temperature: 0.2 },
     });
     const res = await (injected ?? client()).send(command, { abortSignal: signal });
     const content: ContentBlock[] = res.output?.message?.content ?? [];
