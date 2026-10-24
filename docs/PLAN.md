@@ -23,6 +23,20 @@ Who benefits: patients and caregivers (especially non-English speakers and peopl
 
 Stretch (only if ahead at 4 PM): save/compare trials; clinician mode (paste a patient's age/condition → shortlist); equity overlay with MassGIS environmental-justice block groups ("trials within 1 mile of an accessible stop in EJ neighborhoods").
 
+### Added idea: reported study results (Neil)
+Help people understand what researchers have learned before they contact a study team. On a trial detail page, add **“What has this study found?”** with a link to the original report. This is separate from the “Might this fit me?” checklist: published results do not predict what will happen to one person or decide who can join.
+
+- Show results for the **same NCT ID** when ClinicalTrials.gov has posted them. A recruiting study may have no results yet. Missing or unavailable data must never become “the treatment did not work.”
+- When results are available, show what was measured, when it was measured, each study group, the number of people measured in each group, the reported value and units, and reported uncertainty when available. Keep the source's denominator and time period; do not invent a success rate or mix unrelated measures.
+- Show a short, source-backed explanation of the finding and any reported harms or limitations, with source link and report/update date. Identify this as a report from the study team; do not generate participant quotes or testimonials.
+- Distinguish **“Results not posted”** (the source was checked), **“Results unavailable right now”** (fetch failed), and **“Results have not been checked”** (backend not connected). Always offer the official study link.
+- Related completed studies are a later feature. Label them as different studies, show their own NCT IDs and populations, and explain that their results may not apply here. Do not use their outcomes to rank recruiting trials or imply a personal benefit.
+- “Comments” initially means a plain-language explanation of published findings, not a public comment feed. Patient stories, ratings, and moderation are outside this MVP.
+
+**Ownership and delivery:** Neil builds the accessible detail-page section and its loading/empty/error states. Hasan supplies verified result data through the detail endpoint; preserve the existing frontend contract with an optional results field. Akash checks source fidelity and safety wording. Ship the sourced-data path only after verifying a real posted-results example; do not attach invented outcome numbers to demo trials. Keep search, the Spanish demo, transit access, and contact flow ahead of this extension.
+
+**Acceptance checks:** no results, fetch failure, and results available render differently; values retain group labels, denominators, units, time periods and source; keyboard and mobile users can read the section; printed summaries include the source; changing checklist answers never changes reported outcomes or sends answers to a server.
+
 Out of scope: accounts, storing health info (nothing leaves the browser except the search query), any eligibility decision.
 
 ## 3. Data & APIs (all verified working today)

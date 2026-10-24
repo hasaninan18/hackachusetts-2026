@@ -1,26 +1,12 @@
 import type { Metadata } from "next";
-import { Noto_Sans, Noto_Sans_SC } from "next/font/google";
+import "@fontsource-variable/noto-sans";
+import "@fontsource-variable/noto-sans-sc";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { LanguagePicker } from "@/components/LanguagePicker";
 import { getDictionary, HTML_LANG, isLang, translator } from "@/lib/i18n";
 import { LANGS } from "@/lib/types";
 import "../globals.css";
-
-const noto = Noto_Sans({
-  variable: "--font-noto",
-  subsets: ["latin", "latin-ext", "vietnamese"],
-  display: "swap",
-});
-
-// Large CJK font: not preloaded, so only Chinese pages download the glyphs they use.
-const notoSc = Noto_Sans_SC({
-  variable: "--font-noto-sc",
-  subsets: ["latin"],
-  weight: ["400", "700"],
-  display: "swap",
-  preload: false,
-});
 
 export async function generateMetadata({ params }: LayoutProps<"/[lang]">): Promise<Metadata> {
   const { lang } = await params;
@@ -42,7 +28,7 @@ export default async function RootLayout({ children, params }: LayoutProps<"/[la
   const t = translator(getDictionary(lang));
 
   return (
-    <html lang={HTML_LANG[lang]} className={`${noto.variable} ${notoSc.variable}`}>
+    <html lang={HTML_LANG[lang]}>
       <body className="min-h-dvh font-sans antialiased">
         <a
           href="#main"

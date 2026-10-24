@@ -29,7 +29,7 @@
   --color-ask: var(--ask);
   --color-ask-bg: var(--ask-bg);
   --color-focus: var(--focus);
-  --font-sans: var(--font-noto), var(--font-noto-sc), system-ui, sans-serif;
+  --font-sans: "Noto Sans Variable", "Noto Sans SC Variable", system-ui, sans-serif;
 }
 
 html {
