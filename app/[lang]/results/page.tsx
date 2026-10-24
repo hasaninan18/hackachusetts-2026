@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
-import { TrialListItem } from "@/components/TrialListItem";
+import { ResultsList } from "@/components/ResultsList";
 import { getTrials, wantsMocks } from "@/lib/data";
 import { getDictionary, isLang, translator } from "@/lib/i18n";
 import type { Dictionary } from "@/lib/i18n";
@@ -137,19 +137,14 @@ async function Results({
           {t("results.changeSearch")}
         </Link>
       </p>
-      {lang !== "en" && <p className="mt-1 text-sm text-muted">{t("results.englishNote")}</p>}
-      <ol className="mt-4 border-t border-line">
-        {data.trials.map((trial) => (
-          <TrialListItem
-            key={trial.nctId}
-            trial={trial}
-            lang={lang}
-            dict={dict}
-            search={{ cond, lat, lon, radius }}
-            mock={mock}
-          />
-        ))}
-      </ol>
+      {/* English list first; titles are translated in the background (non-en only). */}
+      <ResultsList
+        trials={data.trials}
+        lang={lang}
+        dict={dict}
+        search={{ cond, lat, lon, radius }}
+        mock={mock}
+      />
     </div>
   );
 }

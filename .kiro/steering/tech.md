@@ -9,6 +9,7 @@
 - `GET /api/trials?cond=&lat=&lon=&radius=` — proxies ClinicalTrials.gov, slims fields, keeps MA sites, sorts by distance.
 - `GET /api/trials/[nct]` — full trial details + nearest MBTA stops.
 - `POST /api/simplify` — LLM: plain-language summary + quick-check questions + translation. **Cached per `(NCT id, language)`** so the demo is fast and cheap.
+- `POST /api/translate-titles` — LLM: machine-translates results-page study titles + condition labels (`{ lang: es|pt|ht|zh|vi, items ≤ 25 }`). One Converse call (+1 retry), ~8 s per call, per-item validation (codes/numbers kept, no eligibility words), **cached per `(NCT id, language)`**. The results page shows English first and swaps translations in; on failure it stays English.
 
 ## External data / APIs
 - **ClinicalTrials.gov API v2** — `https://clinicaltrials.gov/api/v2/studies`. No key.

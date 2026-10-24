@@ -37,6 +37,8 @@ export const ht = {
   "results.error": "Nou pa ka chaje etid yo kounye a.",
   "results.retry": "Eseye ankò",
   "results.loading": "N ap chèche etid…",
+  "results.machineTranslated": "Tradiksyon otomatik",
+  "results.originalTitle": "Tit orijinal an anglè:",
   "trial.plainLoading": "N ap prepare etid la ak mo senp…",
   "trial.what": "Sou kisa etid sa a ye",
   "trial.do": "Sa ou ta fè",
