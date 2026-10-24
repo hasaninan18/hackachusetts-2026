@@ -67,10 +67,10 @@ describe("haversineMi properties", () => {
 // steering draft named). We test the true behavior:
 //   * outcome is always one of the two allowed values;
 //   * an age outside [min,max] always yields "ask-team" (the cautious outcome);
-//   * empty / malformed eligibility text never, on its own, yields anything but
-//     "possible-fit" from the text (there is no text rule that can rule you out),
-//     i.e. garbage criteriaText can't manufacture a false "possible-fit" either —
-//     with no reasons it stays "possible-fit", which is the safe "contact the team".
+//   * empty / malformed eligibility text (no letter and no digit) with no questions
+//     yields "ask-team" with an "insufficient-info" reason — an absence of info is
+//     never a "possible-fit" (fit-check Requirement 7); text with any letter or digit,
+//     or any generated question, keeps the structured result; it never throws.
 // ---------------------------------------------------------------------------
 
 const ALLOWED_OUTCOMES = ["possible-fit", "ask-team"] as const;
@@ -159,11 +159,18 @@ describe("quickCheck cross-cutting contract", () => {
     );
   });
 
-  it("empty or malformed eligibility text never fabricates a stricter-than-reasons outcome", () => {
-    // criteriaText is free-form junk here; it has no rule attached, so with no other
-    // disqualifier and no answers the outcome must be the safe default, never a crash.
+  // fit-check task A1 (flipped together with Neil's Requirement 7 change, per the fit-check
+  // design): with no questions, text that has no letter and no digit is an absence of info
+  // and must be ask-team with an insufficient-info reason. Text with any letter or digit keeps
+  // the old result (the tech.md LLM-failure fallback). Never throws on malformed text.
+  it("empty or malformed eligibility text with no questions is ask-team (insufficient-info)", () => {
+    const junkArb = fc.oneof(
+      fc.constant(""),
+      fc.constantFrom(" ", "\n\t ", "--- / . , ; ***"), // whitespace- and symbols-only
+      fc.string({ unit: "binary" }),
+    );
     fc.assert(
-      fc.property(fc.oneof(fc.constant(""), fc.string({ unit: "binary" })), (junk) => {
+      fc.property(junkArb, (junk) => {
         const e: Eligibility = {
           minAgeYears: null,
           maxAgeYears: null,
@@ -173,10 +180,26 @@ describe("quickCheck cross-cutting contract", () => {
         };
         const r = quickCheck({}, e, [], {});
         expect(ALLOWED_OUTCOMES).toContain(r.outcome);
-        // nothing to rule out -> possible-fit (the "contact the team" safe outcome),
-        // and crucially it never throws on malformed text.
-        expect(r.outcome).toBe("possible-fit");
+        if (/[\p{L}\p{N}]/u.test(junk)) {
+          expect(r.outcome).toBe("possible-fit");
+        } else {
+          expect(r.outcome).toBe("ask-team");
+          expect(r.reasons).toContainEqual({ kind: "insufficient-info" });
+        }
       }),
+    );
+  });
+
+  it("any generated question means insufficient-info never fires", () => {
+    fc.assert(
+      fc.property(
+        eligibilityArb,
+        questionsArb.filter((qs) => qs.length > 0),
+        (e, qs) => {
+          const r = quickCheck({}, e, qs, answersFor(qs, "unsure"));
+          expect(r.reasons.some((x) => x.kind === "insufficient-info")).toBe(false);
+        },
+      ),
     );
   });
 });
