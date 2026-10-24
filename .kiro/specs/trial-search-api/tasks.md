@@ -50,7 +50,7 @@ lists the requirements it satisfies.
   - `buildDetailUrl` → cached fetch; `404` JSON if no study; else `toDetail(study, origin?)` (distance 0 + first corrected site when no lat/lon), respond `TrialDetail` JSON with `stops: []`.
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 6.*_
 
-- [ ] 9. Verify the whole spec
+- [x] 9. Verify the whole spec
   - Run `npm run typecheck`, `npm run lint`, and `npm test` (vitest run); confirm no edits to Neil's files (`git diff --name-only` touches only `app/api/**`, `lib/api-types.ts`, `lib/facilities.ts`, `lib/clinicaltrials.ts`, their `.test.ts`, and optionally `lib/cache.ts`).
   - Spot-check `buildSearchUrl` output contains `filter.overallStatus=RECRUITING`, `filter.geo=distance(...,5mi)` for the default, and the exact `fields` list.
   - _Requirements: all_
