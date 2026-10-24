@@ -180,3 +180,10 @@ From Hasan's review: Akash's `it.fails` (akash/kiro `d573e5c`) conflicts with PR
 - No production code changed in this merge (`lib/`, `components/`, `app/` are PR #16's).
 - **Verified (observed in this session):** vitest 297/297 (21 files, no expected failures), typecheck, lint 0 errors (5 warnings in other owners' files), copy-guard default scan clean (30 files), `next build`.
 - **Not verified:** a browser re-run (no production code changed since PR #16's 74/74 browser checks), a real Bedrock response, the Vercel preview.
+## Hasan — Kiro agent session: non-English condition search (2026-10-24, ~17:35 EDT)
+Fixes Neil's finding (2): ClinicalTrials.gov `query.cond` only matches English, so "asma", "diabetes tipo 2", "presión alta" etc. returned 0 trials. Branch `fix/spanish-condition-search`. No LLM.
+- `lib/condition-terms.ts` — pure `toEnglishCondition(input)`: normalizes (accents, case, punctuation, spaces) and looks up the whole input in an es/pt/ht → English table (diabetes type 1/2, asthma, hypertension, breast/lung/colon/prostate cancer, depression, anxiety, obesity, heart disease, heart failure, stroke, COPD, HIV, hepatitis C, sickle cell, Alzheimer, arthritis, kidney disease, long COVID). Unknown and English input is returned unchanged; no source phrase may normalize to an English output term.
+- `GET /api/trials` — calls it on `cond` before `buildSearchUrl`; nothing else in the route changed.
+- `lib/condition-terms.test.ts` — every table entry, case/accent/punctuation insensitivity, English and unknown passthrough, plus fast-check: never throws, never empty for non-empty input, output is the input or a table term.
+- **Verified (observed in this session):** vitest 577/577 (25 files), typecheck, lint 0 errors (5 pre-existing warnings in other files). Live `next dev` + real ClinicalTrials.gov from Dorchester, 25 mi: "diabetes tipo 2" 25 (same as "type 2 diabetes"), "asma" 10, "hipertensión" / "presión alta" / "pressão alta" / "tansyon wo" 43, "cáncer de pulmón" 44, "depresión" 47.
+- **Not verified:** fluent-speaker review of the pt/ht phrases, zh/vi terms (not in scope), the Vercel preview.
