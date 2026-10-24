@@ -8,8 +8,97 @@ import type { TrialDetail } from "../types";
 
 const GREEN = "#00843D";
 const RED = "#DA291C";
+const BUS = "#FFC72C";
+const SILVER = "#7C878E";
 
 export const mockTrials: TrialDetail[] = [
+  // HERO (docs/DEMO_DATA.md): THRIVE-DM at Boston Medical Center. Record re-fetched from
+  // ClinicalTrials.gov v2 on 2026-10-24 (NA phase, 18+ with no maximum, ALL sexes, no healthy
+  // volunteers). Site uses the DEMO_DATA "Use" coordinates for BMC. Stops re-checked against
+  // MBTA V3 on 2026-10-24: the two closest bus stops plus the closest Silver Line stop, as in
+  // DEMO_DATA's "Bus at the door; Silver Line 0.2 mi" story (other bus stops at 0.08-0.12 mi
+  // are left out). walkMi is straight-line miles from the BMC point.
+  {
+    nctId: "NCT07043426",
+    title:
+      "Improving Diabetes Care With Strategies For Addressing Health-Related Social Needs and Community Partnerships",
+    conditions: ["Diabetes Mellitus, Type 2"],
+    phase: null,
+    nearestSite: {
+      name: "Boston Medical Center",
+      city: "Boston",
+      zip: "02118",
+      lat: 42.335,
+      lon: -71.0728,
+      locationPrecision: "facility",
+    },
+    distanceMi: 3.39,
+    briefSummary:
+      "The goal of this study is to develop, implement, and evaluate a patient-centered triage and referral model designed to improve health outcomes for individuals with uncontrolled type 2 diabetes mellitus (T2DM) and unmet health-related social needs. The intervention builds on the existing THRIVE infrastructure at Boston Medical Center (BMC), which includes screening for social needs and a resource referral guide. It integrates medical and social care by embedding a data-driven triage tool within the EPIC electronic health record system, engaging community health workers trained in population health, and initiating closed-loop EPIC integrated referrals to community-based organizations.\n\nThis study will use a hybrid type 3 effectiveness-implementation trial design to evaluate the implementation of the THRIVE-DM intervention at the clinic level. Preliminary effectiveness will be assessed by comparing THRIVE-DM to usual care in its ability to increase patient connections to community-based organizations and improve clinical outcomes. Using a stratified randomization approach, the investigators will compare referral closure rates, receipt of social services, hemoglobin A1C levels, and patterns of health service utilization between patients enrolled in THRIVE-DM and those receiving standard care",
+    eligibility: {
+      minAgeYears: 18,
+      maxAgeYears: null,
+      sex: "ALL",
+      healthyVolunteers: false,
+      criteriaText:
+        "Inclusion Criteria:\n\n* Diagnosis: Must have a diagnosis of Type 2 Diabetes Mellitus (T2DM), confirmed by a current diagnosis in the medical record or at least two billing codes in the last two years, or an HbA1c level ≥6.5% in the last two years.\n* Uncontrolled T2DM: Must have an HbA1c ≥9% at the time of screening.\n* Health-Related Social Needs: Must have been screened for health related social needs (HRSNs) during a General Internal Medicine (GIM) visit in the last 3 months and screened positive for at least one HRSN.\n\nExclusion Criteria:\n\n* Patients enrolled in Complex Care Management (CCM).\n* Patients receiving hospice care.\n* Patients who are deceased\n* Patients with Type 1 Diabetes Mellitus (T1DM).",
+    },
+    sites: [
+      {
+        name: "Boston Medical Center",
+        city: "Boston",
+        zip: "02118",
+        lat: 42.335,
+        lon: -71.0728,
+        locationPrecision: "facility",
+      },
+    ],
+    contacts: [
+      { name: "Michael Fischer, MD", phone: "617-414-7288", email: "Michael.Fischer@bmc.org" },
+      { name: "Uma Khemraj, MS", phone: "617-414-7288", email: "Uma.Khemraj@bmc.org" },
+    ],
+    stops: [
+      {
+        id: "5089",
+        name: "91 E Concord St",
+        routeType: 3,
+        lines: [
+          { name: "Bus CT3", color: BUS },
+          { name: "Bus 8", color: BUS },
+          { name: "Bus 10", color: BUS },
+          { name: "Bus 171", color: BUS },
+        ],
+        wheelchair: true,
+        walkMi: 0.047,
+      },
+      {
+        id: "10014",
+        name: "Albany St opp Boston Medical",
+        routeType: 3,
+        lines: [
+          { name: "Bus CT3", color: BUS },
+          { name: "Bus 8", color: BUS },
+          { name: "Bus 10", color: BUS },
+          { name: "Bus 47", color: BUS },
+        ],
+        wheelchair: true,
+        walkMi: 0.063,
+      },
+      {
+        id: "1787",
+        name: "Washington St @ Worcester St",
+        routeType: 3,
+        lines: [
+          { name: "Silver Line SL4", color: SILVER },
+          { name: "Silver Line SL5", color: SILVER },
+          { name: "Bus 8", color: BUS },
+          { name: "Bus 15", color: BUS },
+        ],
+        wheelchair: true,
+        walkMi: 0.222,
+      },
+    ],
+  },
   {
     nctId: "NCT06138821",
     title:
