@@ -3,14 +3,15 @@
   "hooks": [
     {
       "name": "Copy guard",
-      "trigger": "FileSave",
-      "description": "When user-facing copy is saved (lib/i18n/** or component/page text), check English reading grade is 8 or lower and flag forbidden phrases from safety.md (English + Spanish + Portuguese + Haitian Creole + Chinese). If no file path is provided on stdin, the script scans all copy files by default (never a silent pass).",
-      "matcher": "(lib/i18n/.*\\.ts$|components/.*\\.(tsx|ts)$|app/.*\\.tsx$)",
-      "timeout": 60,
+      "trigger": "PostFileSave",
+      "description": "When user-facing copy is saved (lib/i18n/*.ts, components/*.tsx|ts, or app/**/*.tsx), run copy-guard on the saved file: flags forbidden eligibility phrases (EN + ES + PT + HT + ZH) and English copy above an 8th-grade reading level. Appends each run (timestamp, file path, output, exit code) to tests/hook-copy-guard.log.",
+      "matcher": "(lib[\\\\/]i18n[\\\\/].*\\.ts$|components[\\\\/].*\\.(tsx|ts)$|app[\\\\/].*\\.tsx$)",
       "action": {
         "type": "command",
-        "command": "node tests/copy-guard.mjs 2>&1"
-      }
+        "command": "$in = [Console]::In.ReadToEnd(); try { $j = $in | ConvertFrom-Json } catch { $j = $null }; $f = if ($j) { if ($j.filePath) { $j.filePath } elseif ($j.file) { $j.file } else { '' } } else { '' }; $cmd = if ($f) { \"node tests/copy-guard.mjs `\"$f`\" 2>&1\" } else { 'node tests/copy-guard.mjs 2>&1' }; $out = (cmd /c $cmd | Out-String).TrimEnd(); $code = $LASTEXITCODE; $ts = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'); Add-Content -Path 'tests/hook-copy-guard.log' -Value \"[$ts] file=$f exit=$code`n$out`n\"; Write-Output $out; exit $code",
+        "timeout": 60
+      },
+      "enabled": true
     }
   ]
 }
