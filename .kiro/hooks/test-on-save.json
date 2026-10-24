@@ -3,13 +3,13 @@
   "hooks": [
     {
       "name": "Test on save",
-      "trigger": "FileSave",
-      "description": "When a lib/**/*.ts or tests/**/*.ts file is saved, run the Vitest suite once (no watch mode) and report failures.",
-      "matcher": "^(lib|tests)/.*\\.ts$",
-      "timeout": 180,
+      "trigger": "PostFileSave",
+      "description": "When a lib/**/*.ts or tests/**/*.ts file is saved, run the Vitest suite once (no watch mode, npm test = vitest run) and report failures.",
+      "matcher": "(lib[\\\\/]|tests[\\\\/]).*\\.ts$",
       "action": {
         "type": "command",
-        "command": "npm test --silent 2>&1 | tail -40"
+        "command": "npm test --silent 2>&1",
+        "timeout": 180
       }
     }
   ]

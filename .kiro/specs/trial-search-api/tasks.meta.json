@@ -1,0 +1,108 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "1. Add response/raw types in `lib/api-types.ts`": [
+      {
+        "executionId": "d3e89ac0-1d6f-4f6a-9fc3-f438e789dd71",
+        "chatSessionId": "sess_d342d8df-461b-448a-a2a0-cfd8fb0e1bba",
+        "timestamp": 1792857171182
+      },
+      {
+        "executionId": "d3e89ac0-1d6f-4f6a-9fc3-f438e789dd71",
+        "chatSessionId": "sess_d342d8df-461b-448a-a2a0-cfd8fb0e1bba",
+        "timestamp": 1792857344035
+      }
+    ],
+    "2. Implement the Boston geoPoint fix in `lib/facilities.ts`": [
+      {
+        "executionId": "379aab13-cd5e-496e-aa86-6768cb676f3f",
+        "chatSessionId": "sess_1f48869b-3301-457f-8176-bfb7caed13a0",
+        "timestamp": 1792857543668
+      },
+      {
+        "executionId": "379aab13-cd5e-496e-aa86-6768cb676f3f",
+        "chatSessionId": "sess_1f48869b-3301-457f-8176-bfb7caed13a0",
+        "timestamp": 1792857611851
+      }
+    ],
+    "3. Unit + property tests for `lib/facilities.ts` (`lib/facilities.test.ts`)": [
+      {
+        "executionId": "c1ddade7-01d1-4126-b9e7-55e7c909325d",
+        "chatSessionId": "sess_95335caf-ee89-4abd-aab4-704912f156ff",
+        "timestamp": 1792857691666
+      },
+      {
+        "executionId": "c1ddade7-01d1-4126-b9e7-55e7c909325d",
+        "chatSessionId": "sess_95335caf-ee89-4abd-aab4-704912f156ff",
+        "timestamp": 1792857937281
+      }
+    ],
+    "4. Implement parse/slim/rank in `lib/clinicaltrials.ts`": [
+      {
+        "executionId": "1147e826-402d-4dca-98bb-19adf1e247d6",
+        "chatSessionId": "sess_a40b85b2-ca8b-419f-a929-45e948c25b26",
+        "timestamp": 1792858219950
+      },
+      {
+        "executionId": "1147e826-402d-4dca-98bb-19adf1e247d6",
+        "chatSessionId": "sess_a40b85b2-ca8b-419f-a929-45e948c25b26",
+        "timestamp": 1792858558914
+      }
+    ],
+    "5. Unit + property tests for `lib/clinicaltrials.ts` (`lib/clinicaltrials.test.ts`)": [
+      {
+        "executionId": "82f55e01-a629-4217-b524-8a31e67233ec",
+        "chatSessionId": "sess_a40b85b2-ca8b-419f-a929-45e948c25b26",
+        "timestamp": 1792859031907
+      },
+      {
+        "executionId": "82f55e01-a629-4217-b524-8a31e67233ec",
+        "chatSessionId": "sess_a40b85b2-ca8b-419f-a929-45e948c25b26",
+        "timestamp": 1792859345425
+      }
+    ],
+    "6. Add the 10-minute upstream cache helper (I/O layer)": [
+      {
+        "executionId": "6d5754c2-bafd-4f12-a4b7-5dad292f2975",
+        "chatSessionId": "sess_4d83c6d3-ee51-4bad-85b9-66e5a897b6cf",
+        "timestamp": 1792859907398
+      }
+    ],
+    "7. Implement `GET /api/trials` in `app/api/trials/route.ts`": [
+      {
+        "executionId": "6d5754c2-bafd-4f12-a4b7-5dad292f2975",
+        "chatSessionId": "sess_4d83c6d3-ee51-4bad-85b9-66e5a897b6cf",
+        "timestamp": 1792859909882
+      },
+      {
+        "executionId": "6d5754c2-bafd-4f12-a4b7-5dad292f2975",
+        "chatSessionId": "sess_4d83c6d3-ee51-4bad-85b9-66e5a897b6cf",
+        "timestamp": 1792860386819
+      }
+    ],
+    "8. Implement `GET /api/trials/[nct]` in `app/api/trials/[nct]/route.ts`": [
+      {
+        "executionId": "22ef026f-8008-4b46-995e-0c5fb17d686b",
+        "chatSessionId": "sess_4d83c6d3-ee51-4bad-85b9-66e5a897b6cf",
+        "timestamp": 1792861632890
+      },
+      {
+        "executionId": "22ef026f-8008-4b46-995e-0c5fb17d686b",
+        "chatSessionId": "sess_4d83c6d3-ee51-4bad-85b9-66e5a897b6cf",
+        "timestamp": 1792861929506
+      }
+    ],
+    "9. Verify the whole spec": [
+      {
+        "executionId": "47043c55-16aa-4824-9668-246da1379537",
+        "chatSessionId": "sess_8cfaf9a7-1557-42bb-b19b-39f9fc4ac6a7",
+        "timestamp": 1792862145700
+      },
+      {
+        "executionId": "47043c55-16aa-4824-9668-246da1379537",
+        "chatSessionId": "sess_8cfaf9a7-1557-42bb-b19b-39f9fc4ac6a7",
+        "timestamp": 1792862263541
+      }
+    ]
+  }
+}

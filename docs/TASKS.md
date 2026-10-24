@@ -1,5 +1,17 @@
 # TrialPath MA — Start Here (coding is live)
 
+## Current assignments — October 24 review
+
+This status supersedes older progress notes below. App implementation and fixes run through Kiro; keep attribution and execution evidence accurate.
+
+- **Hasan:** trial-search-api tasks 1–9 are committed and pushed through `31bebbd`; PR #3 is open. First fix issue #4 (Faulkner must not match the main Brigham hospital override) and enforce the specified 10-minute cache freshness policy on upstream failure. Add regression coverage and rerun backend checks. Then finalize PR #3, integrate the frontend, and build the `getting-there` and `simplify` specs in that order. Actual Bedrock invocation and the combined live flow still need verification.
+- **Neil:** PR #6 passes its isolated tests/typecheck/lint and completes translation keys. Real search/detail/simplify HTTP calls are already present. Finalize the PR for integration; preserve honest retrospective-Codex attribution. Add hero/demo fixtures including NCT07043426, a share control, and the driving fallback when transit is unavailable. Validate the real API flow, mobile layout, keyboard access, and screen-reader behavior. Do not prioritize reported-results expansion before the core demo works.
+- **Akash:** setup/property-test work is already merged into main through PR #9. Replace the Windows-only copy-guard hook command with a portable invocation; prove a real save triggers it in Hasan's Kiro IDE and capture evidence. Reconcile the safety property test that expects possible-fit for empty/malformed eligibility with steering's cautious fallback, coordinating any `lib/quickCheck.ts` change with Neil. Incorporate DEMO_DATA's 15 simplify prompt rules and Vietnamese copy protections into safety steering. Remove the MCP JSON BOM and review remaining PR #8 against the already-merged configuration to avoid duplicate/stale changes. Preserve both histories when resolving KIRO_LOG conflicts.
+- **Integration:** backend branch currently passes 65 backend tests, typecheck, and lint; its full suite still has 5 known translation failures. Neil's branch passes 61 tests and supplies the dictionary fixes. Run the combined suite after integration; separate branch passes do not establish integrated readiness.
+- **Demo/submission:** test Dorchester → NCT07043426 → Spanish checklist → accessible transit → contact. Capture genuine Kiro evidence; complete public video under 3 minutes, README/Kiro write-up, public repo/live URL, all three members, and SundAI submission by 8 PM (target 7:15 PM; feature freeze 5 PM).
+
+Record completed work and evidence in KIRO_LOG.md; keep assignments here.
+
 ## Rules of the road (avoid merge conflicts)
 - **Update 11:10 (supersedes 10:55):** Neil REBUILDS the frontend in the **Kiro IDE**, spec-first, on a fresh branch `ui/kiro` from main, so the UI is clearly Kiro-built. `neil/frontend` is reference only — **do not merge it**. Order: (1) Akash merges `kiro/steering-docs` → main now; (2) Neil's first Kiro task = scaffold, pushed to main within ~15 min; (3) Hasan pulls and builds the API. Timebox: if the Kiro rebuild isn't at parity by **12:45**, fall back to `neil/frontend` + a retro-spec.
 - **Folder ownership:**
