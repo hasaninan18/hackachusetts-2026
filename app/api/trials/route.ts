@@ -30,6 +30,7 @@ import {
   slimStudy,
   withinRadius,
 } from "../../../lib/clinicaltrials";
+import { toEnglishCondition } from "../../../lib/condition-terms";
 
 /** How long to wait on the upstream before giving up with a 504. */
 const UPSTREAM_TIMEOUT_MS = 10_000;
@@ -95,7 +96,9 @@ export async function GET(request: Request): Promise<NextResponse> {
     return errorResponse("lat and lon are required and must be numeric", 400);
   }
 
-  const cond = searchParams.get("cond") ?? "";
+  // ClinicalTrials.gov only matches English condition terms, so map common es/pt/ht names
+  // ("asma", "presión alta", "tansyon wo") first; unknown or English input is unchanged.
+  const cond = toEnglishCondition(searchParams.get("cond") ?? "");
   const radius = normalizeRadius(searchParams.get("radius"));
   const origin = { lat, lon };
 
