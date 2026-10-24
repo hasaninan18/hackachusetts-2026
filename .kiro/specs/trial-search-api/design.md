@@ -25,6 +25,12 @@ lib/geo.ts   (Neil)     haversineMi(lat1,lon1,lat2,lon2) → miles
 ```
 
 ### Boundaries we respect
+- **`lib/types.ts` and `lib/geo.ts` are shared contracts between the frontend and the
+  backend**, not private backend code. `lib/types.ts` is the HTTP contract the UI reads
+  (`lib/data.ts` validates against it), and `lib/geo.ts` holds the canonical miles helpers
+  both sides use. We **import and reuse** them and **never modify** them — changing either
+  would silently break the frontend being rebuilt on another branch. Any new shape we need
+  goes in `lib/api-types.ts` (importing/re-exporting from `lib/types.ts`), not into `types.ts`.
 - **Do not modify** `lib/types.ts`, `lib/geo.ts`, `lib/quickCheck.ts`, `lib/simplify.ts`,
   `lib/i18n/**`, `lib/mock/**`. Only add new files. (`structure.md` ownership, user instruction.)
 - Response contract is Neil's `lib/types.ts` (`TrialSummary`, `TrialDetail`, `TrialsResponse`).
@@ -86,8 +92,11 @@ Pure helpers, no `fetch`:
 - `slimStudy(rawStudy, origin)` → `TrialSummary | null` (null when no qualifying MA site).
 - `toDetail(rawStudy, origin)` → `TrialDetail` with `eligibility`, `sites`, `contacts`,
   `stops: []`.
-- `buildContacts(rawContacts)` → `Contact[]`, preferring phone/email, dropping PI-without-contact,
-  values verbatim (`safety.md` §5).
+- `buildContacts(centralContacts, maSites)` → `Contact[]`: use the study's central contacts
+  when any has a phone/email; otherwise fall back to the site/location contacts
+  (`LocationContactName`/`Phone`/`EMail`) from the qualifying MA sites. In both cases prefer
+  entries with a phone or email, drop PI-without-contact, keep values verbatim (`safety.md` §5,
+  `BACKEND_NOTES.md` §5).
 - `rankBySiteDistance(trials)` → sorted copy, ascending `distanceMi`, stable.
 
 ### `lib/api-types.ts`
@@ -104,6 +113,7 @@ export interface CtgGeoPoint { lat: number; lon: number; }
 export interface CtgLocation {
   facility?: string; city?: string; state?: string; zip?: string;
   status?: string; geoPoint?: CtgGeoPoint;
+  contacts?: CtgContact[]; // LocationContactName/Phone/EMail — site-level fallback
 }
 export interface CtgContact { name?: string; phone?: string; email?: string; role?: string; }
 export interface CtgEligibilityModule {

@@ -38,7 +38,7 @@ and max distance, so I see the closest ones first.
 
 #### Acceptance criteria
 
-1. WHEN a client sends `GET /api/trials` with `cond`, `lat`, `lon`, and `radius`, THE SYSTEM SHALL call ClinicalTrials.gov API v2 `https://clinicaltrials.gov/api/v2/studies` with `query.cond={cond}`, `filter.overallStatus=RECRUITING`, `filter.geo=distance({lat},{lon},{radius}mi)`, `pageSize=50`, and a `fields` list limited to: NCTId, BriefTitle, Condition, Phase, BriefSummary, EligibilityModule, LocationFacility, LocationCity, LocationState, LocationGeoPoint, LocationStatus, CentralContactName, CentralContactPhone, CentralContactEMail.
+1. WHEN a client sends `GET /api/trials` with `cond`, `lat`, `lon`, and `radius`, THE SYSTEM SHALL call ClinicalTrials.gov API v2 `https://clinicaltrials.gov/api/v2/studies` with `query.cond={cond}`, `filter.overallStatus=RECRUITING`, `filter.geo=distance({lat},{lon},{radius}mi)`, `pageSize=50`, and a `fields` list limited to: NCTId, BriefTitle, Condition, Phase, BriefSummary, EligibilityModule, LocationFacility, LocationCity, LocationState, LocationGeoPoint, LocationStatus, LocationContactName, LocationContactPhone, LocationContactEMail, CentralContactName, CentralContactPhone, CentralContactEMail.
 2. THE SYSTEM SHALL default `radius` to **at least 5 miles** (5 mi) WHEN `radius` is missing, non-numeric, or below 5, because the Boston centroid sits ~4 mi from Dorchester and smaller radii drop every Boston trial (`docs/DEMO_DATA.md`).
 3. WHEN the upstream response is received, THE SYSTEM SHALL keep only sites whose `status === "RECRUITING"` AND `state === "Massachusetts"`, and SHALL drop trials left with no qualifying MA site.
 4. THE SYSTEM SHALL return each trial slimmed to `{ nctId, title, conditions, phase, nearestSite, distanceMi }` matching `TrialSummary` in `lib/types.ts`, with `distanceMi` computed in miles from the search `(lat, lon)` to the trial's **nearest corrected** site.
@@ -60,7 +60,7 @@ eligibility, sites, and contacts.
 4. THE SYSTEM SHALL return `stops: []` in this spec (the `getting-there` spec adds MBTA stops) so the `TrialDetail` contract stays satisfiable.
 5. IF no study matches the NCT ID, THEN THE SYSTEM SHALL respond `404` with a JSON error body.
 6. THE SYSTEM SHALL build `eligibility` from the API: `minAgeYears`/`maxAgeYears` via `parseAge`, `sex` (`ALL|FEMALE|MALE`), `healthyVolunteers` (boolean), and `criteriaText`.
-7. THE SYSTEM SHALL build `contacts` preferring entries that have a phone or email, dropping `PRINCIPAL_INVESTIGATOR` entries with neither, and SHALL pass phone and email strings through unchanged (`safety.md` §5, `docs/BACKEND_NOTES.md` §5).
+7. THE SYSTEM SHALL build `contacts` from the study's **central contacts** when present; WHEN there is no central contact (or none with a phone or email), THE SYSTEM SHALL fall back to the **site/location contacts** (`LocationContactName`/`LocationContactPhone`/`LocationContactEMail`), preferring the qualifying MA site(s). In both cases it SHALL prefer entries that have a phone or email, drop `PRINCIPAL_INVESTIGATOR` entries with neither, and pass phone and email strings through unchanged (`safety.md` §5, `docs/BACKEND_NOTES.md` §5).
 
 ## Requirement 3 — Boston geoPoint fix (`lib/facilities.ts`)
 

@@ -24,7 +24,7 @@ lists the requirements it satisfies.
 - [ ] 4. Implement parse/slim/rank in `lib/clinicaltrials.ts`
   - `normalizeRadius(raw) → max(5, n)` (default ≥ 5 mi); `buildSearchUrl({cond,lat,lon,radius})` and `buildDetailUrl(nct)` with the exact params and `fields` list from Requirement 1.1.
   - `parseAge` (Years/Months/N/A/empty/junk → number|null, never throws), `parsePhase` (`["PHASE1","PHASE2"]`→"Phase 1/2", NA→null).
-  - `correctSite`, `recruitingMaSites` (status RECRUITING + state Massachusetts), `nearestSite(sites, origin)` using `haversineMi` from `lib/geo.ts` (miles), `buildContacts` (prefer phone/email, drop PI-without-contact, values verbatim).
+  - `correctSite`, `recruitingMaSites` (status RECRUITING + state Massachusetts), `nearestSite(sites, origin)` using `haversineMi` from `lib/geo.ts` (miles), `buildContacts(centralContacts, maSites)` (central contacts first; fall back to site/location contacts when there's no central contact; prefer phone/email, drop PI-without-contact, values verbatim).
   - `slimStudy(rawStudy, origin) → TrialSummary | null`, `toDetail(rawStudy, origin) → TrialDetail` with `stops: []`, `rankBySiteDistance(trials)` ascending/stable.
   - _Requirements: 1.1, 1.2, 1.4, 1.5, 1.8, 2.2, 2.3, 2.4, 2.6, 2.7, 3.*, 4.1, 4.2, 4.3, 4.4_
 

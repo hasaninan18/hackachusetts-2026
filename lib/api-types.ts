@@ -7,6 +7,7 @@
 // The raw ClinicalTrials.gov v2 shapes below cover ONLY the `fields` the search requests:
 // NCTId, BriefTitle, Condition, Phase, BriefSummary, EligibilityModule, LocationFacility,
 // LocationCity, LocationState, LocationGeoPoint, LocationStatus,
+// LocationContactName, LocationContactPhone, LocationContactEMail,
 // CentralContactName, CentralContactPhone, CentralContactEMail.
 
 import type { TrialDetail, TrialSummary, TrialsResponse } from "./types";
@@ -38,6 +39,11 @@ export interface CtgLocation {
   /** Per-site recruitment status; filter to "RECRUITING" (BACKEND_NOTES.md §2). */
   status?: string;
   geoPoint?: CtgGeoPoint;
+  /**
+   * Site-level contacts (LocationContactName/Phone/EMail). Used by buildContacts as the
+   * fallback when the study has no central contact.
+   */
+  contacts?: CtgContact[];
 }
 
 export interface CtgContact {
