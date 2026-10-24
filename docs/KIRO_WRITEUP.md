@@ -28,8 +28,13 @@ We used Kiro across more than one surface, and the log is explicit about which d
   cause is fixed on `main`** (the dictionaries are filled), so those 5 failures no longer apply —
   see the integrated snapshot in "Still pending." The `kiro` command is a different binary: the
   **IDE launcher** (`kiro --version` → 1.4.26), not the agentic `kiro-cli.exe`.
-- **Kiro Crew** — **TODO.** The log records **no Crew run** (no parallel spec-task execution). We
-  make no Crew claim.
+- **Kiro Crew** — used for **two read-only review sessions, run sequentially (one after the other,
+  not in parallel), with no files edited** (per `KIRO_LOG.md`). Session 1 reviewed
+  `docs/QA_CHECKLIST.md` against `safety.md` and reported the missing safety checks (Vietnamese
+  phrases, contact/disclaimer on non-trial pages, answers never logged server-side, no diagnosis
+  advice, and more) — those gaps are now folded into the checklist's §6. Session 2 checked every
+  `done` task across the specs for orphaned claims and found none. We make **no claim of parallel
+  runs or orchestration** — the sessions ran one at a time and changed nothing in the tree.
 
 The CLI run's 5 failures were the empty non-English dictionaries; those dictionaries are now filled
 and the merged `main` suite is green (see "Integrated snapshot & attribution").
@@ -283,7 +288,6 @@ Kept front-and-center because they're the truthful version of the story:
 
 ### Remaining real TODOs
 
-- **Kiro Crew** — no Crew run exists in the log; we make no Crew claim.
 - **Vibe coding** — the log attributes no specific feature code to an unstructured ("vibe") Kiro
   session, so we claim no vibe-vs-spec split beyond "specs covered the safety-critical features."
 - **A manual-save hook observation with captured panel output** — hooks were seen firing on agent
