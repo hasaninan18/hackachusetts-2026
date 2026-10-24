@@ -21,7 +21,7 @@ lists the requirements it satisfies.
   - Property (fast-check): `correctCoordinates` never throws on arbitrary strings/numbers; non-centroid coordinates are returned unchanged.
   - _Requirements: 7.1, 7.3, 7.4, 7.6_
 
-- [ ] 4. Implement parse/slim/rank in `lib/clinicaltrials.ts`
+- [x] 4. Implement parse/slim/rank in `lib/clinicaltrials.ts`
   - `normalizeRadius(raw) → max(5, n)` (default ≥ 5 mi); `buildSearchUrl({cond,lat,lon,radius})` and `buildDetailUrl(nct)` with the exact params and `fields` list from Requirement 1.1.
   - `parseAge` (Years/Months/N/A/empty/junk → number|null, never throws), `parsePhase` (`["PHASE1","PHASE2"]`→"Phase 1/2", NA→null).
   - `correctSite`, `recruitingMaSites` (status RECRUITING + state Massachusetts), `nearestSite(sites, origin)` using `haversineMi` from `lib/geo.ts` (miles), `buildContacts(centralContacts, maSites)` (central contacts first; fall back to site/location contacts when there's no central contact; prefer phone/email, drop PI-without-contact, values verbatim).
