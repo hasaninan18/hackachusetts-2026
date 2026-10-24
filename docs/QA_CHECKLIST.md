@@ -249,3 +249,53 @@ AND eyeball the live UI, including the cached translations.
 - [ ] §6 safety checks complete
 
 Checked by: ______________   Date: ____________   Live URL: ______________________________
+
+---
+
+## Local run, Oct 24 ~3:45 PM
+
+Ran `npm install` and `npm run dev` on branch `akash/kiro`. **No Bedrock key was set**, so the
+cautious LLM-failure fallback path was exercised.
+
+Observed on the **Spanish** trial page for **NCT07064473**:
+
+- [x] Plain-language card showed the **"versión sencilla no está lista" fallback** with the
+      **original English summary** (LLM-failure fallback, §4d).
+- [x] The **no-nearby-stop message** was shown (§4b).
+- [x] The **directions link** was present (§4b).
+- [x] The **disclaimer** was shown (§6b).
+
+**Radius / distance filter** (search for "diabetes" at ZIP **02124**, **10 miles**, on `akash/kiro`):
+
+- [x] **NCT07064473 (Methuen) is not in the results** — correctly filtered out by the distance
+      radius.
+
+**Spanish quick-check** (age **20**), observed outcome text and framing:
+
+- [x] Answer **"Sí"** to the condition question → "Este estudio podría ser una opción. Contacte al
+      equipo del estudio. Le harán más preguntas y decidirán quién puede participar." — **no
+      eligibility claim, hedged, points to the study team.**
+- [x] Answer **"No estoy seguro/a"** → **same result text as "Sí"** ("Este estudio podría ser una
+      opción…"). **Observation:** *unsure* and *yes* give the **same outcome**, because only a
+      definite rule-out answer changes it. **No eligibility claim.**
+- [x] Answer **"No"** → "Algunas respuestas podrían impedir que participe. Eso no siempre significa
+      que no. Pregunte al equipo del estudio sobre sus respuestas." plus the reason "El estudio es
+      para personas que tienen este problema de salud." — **no eligibility claim, hedged, points to
+      the study team.**
+
+All other checks: **not yet run.**
+
+- [ ] §1 15-trial eligibility hand-check — not yet run
+- [ ] §2 device & network (phone / incognito / venue Wi-Fi) — not yet run
+- [ ] §3 native-speaker language reads (en/es/pt/ht/zh) — not yet run
+- [ ] §4a no trials found — not yet run
+- [ ] §4c API rate limit / timeout / fetch failure — not yet run
+- [ ] §4e loading states — not yet run
+- [ ] §5 accessibility (keyboard / screen reader / contrast / tap targets / icon text) — not yet run
+- [ ] §6a never claim eligibility (incl. non-English + VI phrases) — not yet run
+- [ ] §6a-bis plain language ≤ 8th grade — not yet run
+- [ ] §6c contact present — not yet run
+- [ ] §6c-bis contact + disclaimer on non-trial pages — not yet run
+- [ ] §6d identifiers verbatim — not yet run
+- [ ] §6e privacy (answers not logged client- or server-side) — not yet run
+- [ ] §6f scope boundaries (ranking / no diagnosis / cautious-default copy) — not yet run
