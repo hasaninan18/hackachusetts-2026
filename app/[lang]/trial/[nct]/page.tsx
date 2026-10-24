@@ -179,6 +179,7 @@ async function Trial({ params, searchParams }: Props) {
 
       <ContactCard
         nctId={trial.nctId}
+        title={trial.title}
         contacts={trial.contacts}
         t={t}
         printLabel={t("contact.print")}
