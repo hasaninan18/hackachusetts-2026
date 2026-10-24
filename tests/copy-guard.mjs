@@ -25,9 +25,24 @@ const FORBIDDEN = {
   ht: ["ou kalifye", "ou elijib"],
   zh: ["您符合条件", "您符合资格", "您合格"],
 };
-const ALL_FORBIDDEN = Object.entries(FORBIDDEN).flatMap(([lang, arr]) =>
+export const ALL_FORBIDDEN = Object.entries(FORBIDDEN).flatMap(([lang, arr]) =>
   arr.map((p) => ({ lang, phrase: p }))
 );
+
+// Return the matching {lang, phrase} if `text` contains any forbidden phrase (case-insensitive),
+// or null if it's clean. Pure, total, never throws on any string input (incl. non-Latin / empty).
+export function findForbiddenPhrase(text) {
+  const lower = String(text).toLowerCase();
+  for (const { lang, phrase } of ALL_FORBIDDEN) {
+    if (lower.includes(phrase.toLowerCase())) return { lang, phrase };
+  }
+  return null;
+}
+
+// Boolean convenience wrapper: does this string contain a forbidden phrase?
+export function containsForbiddenPhrase(text) {
+  return findForbiddenPhrase(text) !== null;
+}
 
 const READING_GRADE_MAX = 8;
 
@@ -40,7 +55,7 @@ function countSyllables(word) {
   const groups = word.match(/[aeiouy]{1,2}/g);
   return groups ? groups.length : 1;
 }
-function readingGrade(text) {
+export function readingGrade(text) {
   const clean = text.replace(/\{[^}]+\}/g, "word").trim(); // treat {placeholders} as a word
   if (!clean) return 0;
   const sentences = Math.max(1, (clean.match(/[.!?]+/g) || []).length);
@@ -102,12 +117,10 @@ function checkFile(file) {
   const isEnglish = /(^|\/)en\.ts$/.test(file) || /i18n\/en/.test(file) || !/i18n\//.test(file);
 
   for (const { val, isCss } of strings) {
-    const lower = val.toLowerCase();
     // Forbidden-phrase check runs on EVERY string (cheap, no false positives on css).
-    for (const { lang, phrase } of ALL_FORBIDDEN) {
-      if (lower.includes(phrase.toLowerCase())) {
-        violations.push({ file, type: "forbidden-phrase", lang, phrase, text: val });
-      }
+    const hit = findForbiddenPhrase(val);
+    if (hit) {
+      violations.push({ file, type: "forbidden-phrase", lang: hit.lang, phrase: hit.phrase, text: val });
     }
     // Reading-grade only on English prose: skip css/class strings and non-sentences.
     if (isEnglish && !isCss && !EXEMPT_EXACT.has(val.trim()) && isGradableSentence(val)) {
@@ -157,35 +170,44 @@ function defaultScan() {
   ];
 }
 
-const args = process.argv.slice(2);
-let files = args.length ? args : filesFromStdin();
+function runCli() {
+  const args = process.argv.slice(2);
+  let files = args.length ? args : filesFromStdin();
 
-// No file from args and none on stdin -> scan everything by default.
-// Never exit 0 "clean" just because no file name was passed.
-if (files.length === 0) {
-  files = defaultScan();
+  // No file from args and none on stdin -> scan everything by default.
+  // Never exit 0 "clean" just because no file name was passed.
   if (files.length === 0) {
-    console.error("copy-guard: no files given and no copy files found to scan");
-    process.exit(2);
+    files = defaultScan();
+    if (files.length === 0) {
+      console.error("copy-guard: no files given and no copy files found to scan");
+      process.exit(2);
+    }
+    console.log(`copy-guard: no file arg; scanning ${files.length} copy file(s) by default`);
   }
-  console.log(`copy-guard: no file arg; scanning ${files.length} copy file(s) by default`);
-}
 
-let all = [];
-for (const f of files) all = all.concat(checkFile(f));
+  let all = [];
+  for (const f of files) all = all.concat(checkFile(f));
 
-if (all.length === 0) {
-  console.log(`copy-guard: OK (${files.length} file(s) checked, no violations)`);
-  process.exit(0);
-}
-
-console.error(`copy-guard: ${all.length} violation(s) found:\n`);
-for (const v of all) {
-  if (v.type === "forbidden-phrase") {
-    console.error(`  [forbidden:${v.lang}] "${v.phrase}" in ${v.file}\n      -> ${v.text}`);
-  } else {
-    console.error(`  [reading-grade ${v.grade} > ${v.max}] ${v.file}\n      -> ${v.text}`);
+  if (all.length === 0) {
+    console.log(`copy-guard: OK (${files.length} file(s) checked, no violations)`);
+    process.exit(0);
   }
+
+  console.error(`copy-guard: ${all.length} violation(s) found:\n`);
+  for (const v of all) {
+    if (v.type === "forbidden-phrase") {
+      console.error(`  [forbidden:${v.lang}] "${v.phrase}" in ${v.file}\n      -> ${v.text}`);
+    } else {
+      console.error(`  [reading-grade ${v.grade} > ${v.max}] ${v.file}\n      -> ${v.text}`);
+    }
+  }
+  console.error("\nSee .kiro/steering/safety.md. Fix the copy before committing.");
+  process.exit(2);
 }
-console.error("\nSee .kiro/steering/safety.md. Fix the copy before committing.");
-process.exit(2);
+
+// Only run the CLI when invoked directly (node tests/copy-guard.mjs ...), not when
+// imported by the test suite. Compare the resolved module URL to argv[1].
+import { pathToFileURL } from "node:url";
+const invokedDirectly =
+  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (invokedDirectly) runCli();
