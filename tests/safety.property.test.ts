@@ -225,9 +225,15 @@ const FORBIDDEN_BY_LANG: Record<string, string[]> = {
   pt: ["você se qualifica", "você é elegível", "atende aos critérios"],
   ht: ["ou kalifye", "ou elijib"],
   zh: ["您符合条件", "您符合资格", "您合格"],
-  // vi intentionally absent: safety.md says Vietnamese equivalents must be added
-  // BEFORE Vietnamese ships. If vi strings appear, the "no bare eligible/qualify"
-  // guard below still covers the Latin-script cases.
+  // Vietnamese equivalents (safety.md §1). NEEDS REVIEW by a Vietnamese speaker —
+  // machine-drafted, not verified. Added before vi ships so the scan covers vi copy too.
+  vi: [
+    "bạn đủ điều kiện",
+    "bạn đủ tiêu chuẩn",
+    "bạn phù hợp",
+    "bạn đáp ứng các tiêu chí",
+    "được bảo đảm",
+  ],
 };
 
 const ALL_FORBIDDEN = Object.values(FORBIDDEN_BY_LANG).flat();
