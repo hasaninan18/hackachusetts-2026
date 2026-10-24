@@ -1,8 +1,8 @@
 import "server-only";
 import { headers } from "next/headers";
-import { haversineMi } from "./geo";
 import { parseOutcomes, type TrialDetailWithOutcomes } from "./outcomes";
 import { getMockTrial, mockTrials } from "./mock/data";
+import { rankWithinRadius } from "./rank";
 import type { Eligibility, Site, TrialSummary, TrialsResponse } from "./types";
 
 // Pages talk to the backend only through the HTTP contract in lib/types.ts, so Hasan's
@@ -30,18 +30,12 @@ export interface TrialQuery {
 export async function getTrials(q: TrialQuery, mock: boolean): Promise<TrialsResponse> {
   if (mock) {
     const term = q.cond.toLowerCase();
-    const trials = mockTrials
-      .map((t) => ({
-        ...t,
-        distanceMi: haversineMi(q.lat, q.lon, t.nearestSite.lat, t.nearestSite.lon),
-      }))
-      .filter(
-        (t) =>
-          t.distanceMi <= q.radius &&
-          (t.conditions.some((c) => c.toLowerCase().includes(term)) ||
-            t.title.toLowerCase().includes(term)),
-      )
-      .sort((a, b) => a.distanceMi - b.distanceMi)
+    const matching = mockTrials.filter(
+      (t) =>
+        t.conditions.some((c) => c.toLowerCase().includes(term)) ||
+        t.title.toLowerCase().includes(term),
+    );
+    const trials = rankWithinRadius(matching, q, q.radius)
       .map(({ nctId, title, conditions, phase, nearestSite, distanceMi }) => ({
         nctId,
         title,

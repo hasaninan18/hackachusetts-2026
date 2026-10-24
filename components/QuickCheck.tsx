@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { parseAgeInput } from "@/lib/age";
 import { HTML_LANG, type MessageKey, type Translate } from "@/lib/i18n";
 import { quickCheck, type Answer, type Profile } from "@/lib/quickCheck";
 import type { Eligibility, FitQuestion, Lang } from "@/lib/types";
@@ -85,7 +86,7 @@ export function QuickCheck({
   const askSex = eligibility.sex !== "ALL";
   const askHealthy = eligibility.healthyVolunteers === false;
 
-  const age = parseAge(committedAge);
+  const age = parseAgeInput(committedAge);
   const ageInvalid = committedAge !== "" && age === undefined;
   const profile: Profile = {
     age,
@@ -276,13 +277,6 @@ export function QuickCheck({
       </div>
     </section>
   );
-}
-
-// Only a whole number from 0 to 120 counts. Anything else is "not answered", never a mismatch.
-function parseAge(text: string): number | undefined {
-  if (!/^\d{1,3}$/.test(text)) return undefined;
-  const n = Number(text);
-  return n <= 120 ? n : undefined;
 }
 
 function ChoiceGroup({
