@@ -10,24 +10,27 @@
 //     → cachedFetchJson (10-min cache, keyed by the NCT ID)
 //     → 404 ApiError when the upstream returns no study
 //     → toDetail(study, origin?) — distanceMi 0 + first corrected site when no origin
-//     → TrialDetail JSON (stops: []).
+//     → fetchNearbyStops(correctedSite) — MBTA stops, isolated so it cannot break details
+//     → TrialDetail JSON (stops populated, or [] when MBTA is unavailable).
 //
 // Upstream failure maps to 502 (bad gateway / non-OK response or network error) or 504
 // (timeout). cachedFetchJson serves a fresh-enough cache entry without hitting the network
 // and falls back to any cached entry when the fetcher throws, so the catch here only runs
 // when there is nothing cached to serve (Requirement 6.4).
-
+//
+// getting-there (MBTA): after the detail is built, we fetch nearby MBTA stops for the
+// chosen site's CORRECTED coordinates and fill detail.stops. fetchNearbyStops never rejects
+// (it resolves [] on timeout/failure/malformed data), so an MBTA problem can never break the
+// ClinicalTrials.gov trial detail (getting-there Requirement 6).
 import { NextResponse } from "next/server";
 import type { ApiError, CtgStudiesResponse, TrialDetail } from "../../../../lib/api-types";
 import { cachedFetchJson } from "../../../../lib/cache";
 import { buildDetailUrl, toDetail } from "../../../../lib/clinicaltrials";
-
+import { fetchNearbyStops } from "../../../../lib/mbta";
 /** How long to wait on the upstream before giving up with a 504. */
 const UPSTREAM_TIMEOUT_MS = 10_000;
-
 /** Sentinel so the catch block can tell a timeout (504) from any other failure (502). */
 class UpstreamTimeoutError extends Error {}
-
 /**
  * Parse a query-string coordinate to a finite number, or `null` when it is missing,
  * empty, or non-numeric. An empty string is NOT a valid coordinate, so we reject it
@@ -42,12 +45,10 @@ function parseCoord(raw: string | null): number | null {
   const n = Number(trimmed);
   return Number.isFinite(n) ? n : null;
 }
-
 /** Build a JSON `ApiError` response with the given status. */
 function errorResponse(message: string, status: number): NextResponse<ApiError> {
   return NextResponse.json<ApiError>({ error: message }, { status });
 }
-
 /**
  * Fetch the upstream detail URL and parse its JSON body. Throws an
  * {@link UpstreamTimeoutError} on timeout/abort (→ 504) and a plain `Error` on a non-OK
@@ -76,14 +77,25 @@ async function fetchStudies(url: string): Promise<CtgStudiesResponse> {
     clearTimeout(timeout);
   }
 }
-
+/**
+ * The anchor for the MBTA lookup is the detail's chosen (corrected) site. We only query
+ * MBTA for a REAL site: `toDetail` emits a defensive placeholder (empty name, lat/lon 0,
+ * precision "city") when a study has no qualifying MA site, and querying MBTA at (0,0) is
+ * meaningless. Guard on a non-empty name and finite, non-placeholder coordinates.
+ */
+function mbtaAnchor(detail: TrialDetail): { lat: number; lon: number } | null {
+  const site = detail.nearestSite;
+  if (!site || site.name === "") return null;
+  if (!Number.isFinite(site.lat) || !Number.isFinite(site.lon)) return null;
+  if (site.lat === 0 && site.lon === 0) return null;
+  return { lat: site.lat, lon: site.lon };
+}
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ nct: string }> },
 ): Promise<NextResponse> {
   const { nct } = await params;
   const { searchParams } = new URL(request.url);
-
   // lat/lon are OPTIONAL here (Requirement 2.3): when both are present and numeric they
   // form the origin for distance/nearest-site; otherwise we pass NO origin to toDetail,
   // which then sets distanceMi = 0 and nearestSite = first qualifying corrected site. We do
@@ -91,11 +103,9 @@ export async function GET(
   const lat = parseCoord(searchParams.get("lat"));
   const lon = parseCoord(searchParams.get("lon"));
   const origin = lat !== null && lon !== null ? { lat, lon } : undefined;
-
   // buildDetailUrl uses query.id, so the response comes back in the same { studies: [...] }
   // shape as search. The cache is keyed by the NCT ID (Requirement 6.1).
   const url = buildDetailUrl(nct);
-
   let body: CtgStudiesResponse;
   try {
     // cachedFetchJson serves a fresh (<10 min) entry without calling fetchStudies, caches
@@ -108,12 +118,22 @@ export async function GET(
     }
     return errorResponse("failed to reach ClinicalTrials.gov", 502);
   }
-
   const studies = Array.isArray(body.studies) ? body.studies : [];
   if (studies.length === 0) {
     return errorResponse(`no study found for ${nct}`, 404);
   }
-
   const detail = toDetail(studies[0], origin);
+  // getting-there: enrich with nearby MBTA stops measured from the CORRECTED site coords
+  // (lib/facilities.ts already corrected nearestSite). fetchNearbyStops resolves [] on any
+  // MBTA timeout/failure/malformed data, so the trial detail is never broken by MBTA; the
+  // try/catch is belt-and-suspenders (getting-there Requirements 1, 5, 6).
+  const anchor = mbtaAnchor(detail);
+  if (anchor) {
+    try {
+      detail.stops = await fetchNearbyStops(anchor);
+    } catch {
+      detail.stops = [];
+    }
+  }
   return NextResponse.json<TrialDetail>(detail);
 }
