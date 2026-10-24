@@ -1,0 +1,109 @@
+{
+ "protocolSection": {
+  "statusModule": {
+   "statusVerifiedDate": "2025-12",
+   "overallStatus": "RECRUITING",
+   "expandedAccessInfo": {
+    "hasExpandedAccess": false
+   },
+   "startDateStruct": {
+    "date": "2023-03-28",
+    "type": "ACTUAL"
+   },
+   "primaryCompletionDateStruct": {
+    "date": "2026-11-08",
+    "type": "ESTIMATED"
+   },
+   "completionDateStruct": {
+    "date": "2026-11-10",
+    "type": "ESTIMATED"
+   },
+   "studyFirstSubmitDate": "2023-03-03",
+   "studyFirstSubmitQcDate": "2023-03-22",
+   "studyFirstPostDateStruct": {
+    "date": "2023-04-05",
+    "type": "ACTUAL"
+   },
+   "lastUpdateSubmitDate": "2025-12-18",
+   "lastUpdatePostDateStruct": {
+    "date": "2025-12-24",
+    "type": "ACTUAL"
+   }
+  },
+  "sponsorCollaboratorsModule": {
+   "responsibleParty": {
+    "type": "PRINCIPAL_INVESTIGATOR",
+    "investigatorFullName": "Chika V. Anekwe, MD, MPH",
+    "investigatorTitle": "Instructor in Medicine",
+    "investigatorAffiliation": "Massachusetts General Hospital"
+   },
+   "leadSponsor": {
+    "name": "Massachusetts General Hospital",
+    "class": "OTHER"
+   }
+  },
+  "oversightModule": {
+   "oversightHasDmc": false,
+   "isFdaRegulatedDrug": false,
+   "isFdaRegulatedDevice": false
+  },
+  "designModule": {
+   "studyType": "OBSERVATIONAL",
+   "patientRegistry": false,
+   "designInfo": {
+    "observationalModel": "CASE_ONLY",
+    "timePerspective": "PROSPECTIVE"
+   },
+   "bioSpec": {
+    "retention": "SAMPLES_WITHOUT_DNA",
+    "description": "Participants may choose to take part in an optional collection of stored blood."
+   },
+   "enrollmentInfo": {
+    "count": 20,
+    "type": "ESTIMATED"
+   }
+  },
+  "armsInterventionsModule": {
+   "armGroups": [
+    {
+     "label": "Adults with overweight/obesity and pre-diabetes/diabetes and low income",
+     "description": "Adults with overweight or obesity and pre-diabetes or type 2 diabetes who earn a low income.",
+     "interventionNames": [
+      "Dietary Supplement: Bariatrix Meal Replacement Products"
+     ]
+    }
+   ],
+   "interventions": [
+    {
+     "type": "DIETARY_SUPPLEMENT",
+     "name": "Bariatrix Meal Replacement Products",
+     "description": "Meal replacement products offered through the Massachusetts General Hospital Weight Center.",
+     "armGroupLabels": [
+      "Adults with overweight/obesity and pre-diabetes/diabetes and low income"
+     ]
+    }
+   ]
+  },
+  "outcomesModule": {
+   "primaryOutcomes": [
+    {
+     "measure": "Body weight reduction",
+     "description": "Reduction in body weight by greater than or equal to 5 percent",
+     "timeFrame": "3 months"
+    },
+    {
+     "measure": "Hemoglobin A1c reduction",
+     "description": "Reduction of Hemoglobin A1c by greater than or equal to 0.5 percent",
+     "timeFrame": "3 months"
+    }
+   ],
+   "secondaryOutcomes": [
+    {
+     "measure": "Program adherence",
+     "description": "Adherence with the program, and potential reasons for non-adherence as assessed with bi-weekly questionnaires",
+     "timeFrame": "3 months"
+    }
+   ]
+  }
+ }
+}

@@ -1,0 +1,246 @@
+{
+ "protocolSection": {
+  "statusModule": {
+   "statusVerifiedDate": "2025-11",
+   "overallStatus": "RECRUITING",
+   "expandedAccessInfo": {
+    "hasExpandedAccess": false
+   },
+   "startDateStruct": {
+    "date": "2025-06-24",
+    "type": "ACTUAL"
+   },
+   "primaryCompletionDateStruct": {
+    "date": "2027-12",
+    "type": "ESTIMATED"
+   },
+   "completionDateStruct": {
+    "date": "2028-06",
+    "type": "ESTIMATED"
+   },
+   "studyFirstSubmitDate": "2023-11-14",
+   "studyFirstSubmitQcDate": "2023-11-14",
+   "studyFirstPostDateStruct": {
+    "date": "2023-11-18",
+    "type": "ACTUAL"
+   },
+   "lastUpdateSubmitDate": "2026-06-23",
+   "lastUpdatePostDateStruct": {
+    "date": "2026-06-25",
+    "type": "ACTUAL"
+   }
+  },
+  "sponsorCollaboratorsModule": {
+   "responsibleParty": {
+    "type": "SPONSOR_INVESTIGATOR",
+    "investigatorFullName": "Pichamol Jirapinyo, MD, MPH",
+    "investigatorTitle": "Director of Bariatric Endoscopy Fellowship",
+    "investigatorAffiliation": "Brigham and Women's Hospital"
+   },
+   "leadSponsor": {
+    "name": "Pichamol Jirapinyo, MD, MPH",
+    "class": "OTHER"
+   },
+   "collaborators": [
+    {
+     "name": "Boston Scientific Corporation",
+     "class": "INDUSTRY"
+    },
+    {
+     "name": "Cook Group Incorporated",
+     "class": "INDUSTRY"
+    }
+   ]
+  },
+  "oversightModule": {
+   "oversightHasDmc": false,
+   "isFdaRegulatedDrug": false,
+   "isFdaRegulatedDevice": true,
+   "isUsExport": false
+  },
+  "designModule": {
+   "studyType": "INTERVENTIONAL",
+   "phases": [
+    "NA"
+   ],
+   "designInfo": {
+    "allocation": "RANDOMIZED",
+    "interventionModel": "PARALLEL",
+    "interventionModelDescription": "This study is a randomized, controlled, open-label clinical trial.",
+    "primaryPurpose": "TREATMENT",
+    "maskingInfo": {
+     "masking": "NONE"
+    }
+   },
+   "enrollmentInfo": {
+    "count": 132,
+    "type": "ESTIMATED"
+   }
+  },
+  "armsInterventionsModule": {
+   "armGroups": [
+    {
+     "label": "ESG + lifestyle modification",
+     "type": "EXPERIMENTAL",
+     "description": "Endoscopic sleeve gastroplasty weight loss procedure with a lifestyle modification program for 12 months.",
+     "interventionNames": [
+      "Device: ESG + lifestyle modification",
+      "Behavioral: Lifestyle modification"
+     ]
+    },
+    {
+     "label": "Lifestyle modification",
+     "type": "ACTIVE_COMPARATOR",
+     "description": "Lifestyle modification program for 12 months.",
+     "interventionNames": [
+      "Behavioral: Lifestyle modification"
+     ]
+    }
+   ],
+   "interventions": [
+    {
+     "type": "DEVICE",
+     "name": "ESG + lifestyle modification",
+     "description": "Endoscopic sleeve gastroplasty - an endoscopic weight loss procedure where an endoscopic suturing device is utilized to reduce the size of the stomach by 70%.",
+     "armGroupLabels": [
+      "ESG + lifestyle modification"
+     ],
+     "otherNames": [
+      "Endoscopic sleeve gastroplasty",
+      "Endoscopic suturing"
+     ]
+    },
+    {
+     "type": "BEHAVIORAL",
+     "name": "Lifestyle modification",
+     "description": "Lifestyle modification program consisting of diet and exercise therapy",
+     "armGroupLabels": [
+      "ESG + lifestyle modification",
+      "Lifestyle modification"
+     ]
+    }
+   ]
+  },
+  "outcomesModule": {
+   "primaryOutcomes": [
+    {
+     "measure": "MASH resolution without worsening of liver fibrosis at 12 months",
+     "description": "Comparison of endoscopic ultrasound (EUS)-guided liver biopsy results to assess MASH resolution at 12 months compared to baseline in the ESG + lifestyle modification (LM) group compared to LM alone group.",
+     "timeFrame": "Baseline, 12 months"
+    }
+   ],
+   "secondaryOutcomes": [
+    {
+     "measure": "An improvement of liver fibrosis by at least one stage without worsening of MASH at 12 months",
+     "description": "Comparison of endoscopic ultrasound (EUS)-guided liver biopsy results to assess an improvement of liver fibrosis at 12 months compared to baseline in the ESG + lifestyle modification (LM) group compared to LM alone group.",
+     "timeFrame": "Baseline, 12 months"
+    },
+    {
+     "measure": "Change in liver stiffness on MRE at 12 months",
+     "description": "Comparison of liver stiffness measurement on magnetic resonance elastography (MRE) at 12 months compared to baseline in the ESG + lifestyle modification (LM) group compared to LM alone group.",
+     "timeFrame": "Baseline, 12 months"
+    },
+    {
+     "measure": "Change in liver stiffness on VCTE at 12 months",
+     "description": "Comparison of liver stiffness measurement on vibration-controlled transient elastography (VCTE) at 12 months compared to baseline in the ESG + lifestyle modification (LM) group compared to LM alone group.",
+     "timeFrame": "Baseline, 12 months"
+    },
+    {
+     "measure": "Change in liver fibrosis using NFS at 12 months",
+     "description": "Comparison of NAFLD fibrosis score (NFS) at 12 months compared to baseline in the ESG + lifestyle modification (LM) group compared to LM alone group.",
+     "timeFrame": "Baseline, 12 months"
+    },
+    {
+     "measure": "Change in liver fibrosis using ELF score at 12 months",
+     "description": "Comparison of ELF at 12 months compared to baseline in the ESG + lifestyle modification (LM) group compared to LM alone group.",
+     "timeFrame": "Baseline, 12 months"
+    },
+    {
+     "measure": "Change in liver fibrosis using FIB-4 at 12 months",
+     "description": "Comparison of Fibrosis-4 (FIB-4) score at 12 months compared to baseline in the ESG + lifestyle modification (LM) group compared to LM alone group.",
+     "timeFrame": "Baseline, 12 months"
+    },
+    {
+     "measure": "Change in liver fat content using MRI-PDFF at 12 months",
+     "description": "Comparison of liver fat content using MRI proton density fat fraction (MRI-PDFF) at 12 months compared to baseline in the ESG + lifestyle modification (LM) group compared to LM alone group.",
+     "timeFrame": "Baseline, 12 months"
+    },
+    {
+     "measure": "Change in liver fat content using VCTE CAP score at 12 months",
+     "description": "Comparison of liver fat content measured by controlled attenuation parameter (CAP) score on vibration-controlled transient elastography (VCTE) at 12 months compared to baseline in the ESG + lifestyle modification (LM) group compared to LM alone group.",
+     "timeFrame": "Baseline, 12 months"
+    },
+    {
+     "measure": "Change in portosystemic pressure gradient (PPG) measurements at 12 months",
+     "description": "Comparison of portosystemic pressure gradient (PPG) measurements at 12 months compared to baseline in the ESG + lifestyle modification (LM) group compared to LM alone group.",
+     "timeFrame": "Baseline, 12 months"
+    },
+    {
+     "measure": "Percent total weight loss (%TWL) at 12 months",
+     "description": "Comparison of weight loss at 12 months compared to baseline in the ESG + lifestyle modification (LM) group compared to LM alone group.",
+     "timeFrame": "Baseline, 1, 3, 6 and 12 months"
+    },
+    {
+     "measure": "Change in quality of life at 12 months",
+     "description": "Compare changes in quality of life assessed using chronic liver disease questionnaire at 12 months compared to baseline in the ESG + lifestyle modification (LM) group compared to LM alone group",
+     "timeFrame": "Baseline, 6 and 12 months"
+    },
+    {
+     "measure": "Change in eating behaviors at 12 months",
+     "description": "Compare changes in eating behaviors evaluated using the Three Factor Eating Questionnaire (TFEQ) at 12 months compared to baseline in the ESG + lifestyle modification (LM) group compared to LM alone group.",
+     "timeFrame": "Baseline, 6 and 12 months"
+    },
+    {
+     "measure": "Change in physical, mental and social well-being at 12 months",
+     "description": "Compare changes in physical, mental and social well-being using the Patient-reported Outcomes Measurement Information System (PROMIS) at 12 months compared to baseline in the ESG + lifestyle modification (LM) group compared to LM alone group.",
+     "timeFrame": "Baseline, 6 and 12 months"
+    },
+    {
+     "measure": "Change in insulin resistance at 12 months",
+     "description": "Compare changes in insulin resistance using Homeostatic Model Assessment of Insulin Resistance (HOMA-IR) and Hemoglobin (HbA1c) values at 12 months compared to baseline in the ESG + lifestyle modification (LM) group compraed to LM alone group. groups",
+     "timeFrame": "Baseline, 12 months."
+    },
+    {
+     "measure": "Change in gut hormones at 12 months",
+     "description": "Compare changes in gut hormones using ghrelin, GIP, GLP-1, PYY values at 12 months compared to baseline in the ESG + lifestyle modification (LM) group compraed to LM alone group. groups",
+     "timeFrame": "Baseline, 12 months."
+    },
+    {
+     "measure": "Change in bile acids at 12 months",
+     "description": "Compare changes in bile acid values from blood samples at 12 months compared to baseline in the ESG + lifestyle modification (LM) group compraed to LM alone group. groups",
+     "timeFrame": "Baseline, 12 months."
+    },
+    {
+     "measure": "Safety parameters post-procedure",
+     "description": "Rate of serious adverse events, defined as those classified as grade III-V according to the Clavien-Dindo classification in the ESG + LM group and LM alone group.",
+     "timeFrame": "Procedure day, 1, 3, 6, 9 and 12 months"
+    },
+    {
+     "measure": "Change in body composition as measured by Dual-Energy X-ray Absorptiometry (DEXA) scan at 12 months (Brigham and Women's Hospital Only)",
+     "description": "Comparison of Dual-Energy X-ray Absorptiometry (DEXA) scan measurements at 12 months compared to baseline in the ESG + lifestyle modification (LM) group compared to LM alone group.",
+     "timeFrame": "Baseline, 12 months"
+    },
+    {
+     "measure": "Change in liver stiffness on Shear Wave Elastography at 12 months",
+     "description": "Comparison of liver stiffness measurement on Shear wave elastography (SWE) at 12 months compared to baseline in the ESG + lifestyle modification (LM) group compared to LM alone group.",
+     "timeFrame": "Baseline, 12 months"
+    },
+    {
+     "measure": "Change in liver fat content on attenuation imaging (ATT) at 12 months",
+     "description": "Comparison of liver fat content measurements using endoscopic attenuation imaging (ATT) at 12 months compared to baseline in the ESG + lifestyle modification (LM) group compared to LM alone group.",
+     "timeFrame": "Baseline, 12 months"
+    },
+    {
+     "measure": "Change in grip strength measurements at 12 months (Brigham and Women's Hospital Only)",
+     "description": "Comparison of grip strength measurements using a handheld dynamometer at 12 months compared to baseline in the ESG + lifestyle modification (LM) group compared to LM alone group.",
+     "timeFrame": "Baseline, 12 months"
+    },
+    {
+     "measure": "Change in physical performance measurements at 12 months (Brigham and Women's Hospital Only)",
+     "description": "Comparison of physical performance measurements based on a 6-meter walk test at 12 months compared to baseline in the ESG + lifestyle modification (LM) group compared to LM alone group.",
+     "timeFrame": "Baseline, 12 months"
+    }
+   ]
+  }
+ }
+}

@@ -55,12 +55,49 @@ export interface Contact {
   email?: string;
 }
 
+// Neutral facts that help someone decide whether to call: what's tested, how groups are formed,
+// what's measured and when, size, dates, who runs it. Built by lib/studyFacts.ts from the
+// ClinicalTrials.gov record. Raw registry text (arm descriptions, outcome measures) is English.
+export interface StudyArm {
+  label: string;
+  type: "EXPERIMENTAL" | "ACTIVE_COMPARATOR" | "PLACEBO_COMPARATOR" | "SHAM_COMPARATOR" | "NO_INTERVENTION" | "OTHER" | null;
+  description: string;
+}
+
+export interface StudyOutcome {
+  measure: string;
+  timeFrame: string;
+}
+
+export interface StudyDate {
+  date: string; // "2026-11-08" or "2027-12"
+  estimated: boolean;
+}
+
+export interface StudyFacts {
+  studyType: "INTERVENTIONAL" | "OBSERVATIONAL" | "EXPANDED_ACCESS" | null;
+  randomized: boolean | null; // null when the registry doesn't say (always null for observational)
+  masking: "NONE" | "SINGLE" | "DOUBLE" | "TRIPLE" | "QUADRUPLE" | null;
+  hasPlacebo: boolean; // an arm is PLACEBO_COMPARATOR or an intervention is named placebo
+  arms: StudyArm[];
+  interventions: string[]; // "Behavioral: Lifestyle modification"
+  primaryOutcomes: StudyOutcome[];
+  secondaryOutcomeCount: number;
+  enrollment: { count: number; estimated: boolean } | null;
+  start: StudyDate | null;
+  completion: StudyDate | null;
+  lastUpdated: string | null;
+  sponsor: string | null;
+  collaborators: { name: string; industry: boolean }[];
+}
+
 export interface TrialDetail extends TrialSummary {
   briefSummary: string;
   eligibility: Eligibility;
   sites: Site[];
   contacts: Contact[];
   stops: Stop[];
+  facts?: StudyFacts; // optional until /api/trials/[nct] fills it
 }
 
 export interface FitQuestion {
