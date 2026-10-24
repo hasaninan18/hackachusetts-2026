@@ -22,10 +22,11 @@ import {
   rankBySiteDistance,
   slimStudy,
   toDetail,
+  withinRadius,
 } from "./clinicaltrials";
 import { BOSTON_CENTROID } from "./facilities";
 import { haversineMi } from "./geo";
-import type { Site } from "./types";
+import type { Site, TrialSummary } from "./types";
 
 // ---------------------------------------------------------------------------
 // Fixtures: raw CtgStudy for the five demo NCT IDs.
@@ -479,5 +480,101 @@ describe("parse helpers — never throw", () => {
         },
       ),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// withinRadius — enforce the advertised radius against the CORRECTED nearest-site
+// distance (fix/trial-radius). Upstream filter.geo matches at the study level, so a
+// study can return even when its only recruiting MA site lands outside the requested
+// radius after coordinate correction; withinRadius drops those.
+// ---------------------------------------------------------------------------
+
+/** Build a minimal TrialSummary carrying only the distance the filter cares about. */
+function summaryAt(nctId: string, distanceMi: number): TrialSummary {
+  return {
+    nctId,
+    title: `${nctId} trial`,
+    conditions: ["Type 2 Diabetes"],
+    phase: "Phase 2",
+    nearestSite: {
+      name: "Site",
+      city: "Somewhere",
+      lat: 42.3,
+      lon: -71.08,
+      locationPrecision: "facility",
+    },
+    distanceMi,
+  };
+}
+
+describe("withinRadius", () => {
+  it("keeps trials inside the radius and drops those outside", () => {
+    const trials = [
+      summaryAt("NCT-inside", 3.1), // corrected BMC ~3.1 mi from (42.29,-71.08)
+      summaryAt("NCT07064473", 30.66), // the reported bug: ActivMed/Methuen, far outside
+    ];
+    const kept = withinRadius(trials, 10);
+    expect(kept.map((t) => t.nctId)).toEqual(["NCT-inside"]);
+  });
+
+  it("includes an exact-boundary match (distanceMi === radius)", () => {
+    const trials = [summaryAt("NCT-boundary", 10)];
+    expect(withinRadius(trials, 10)).toHaveLength(1);
+    // Just over the boundary is excluded.
+    expect(withinRadius([summaryAt("NCT-over", 10.0001)], 10)).toHaveLength(0);
+    // Just under the boundary is included.
+    expect(withinRadius([summaryAt("NCT-under", 9.9999)], 10)).toHaveLength(1);
+  });
+
+  it("drops non-finite distances (NaN / Infinity) rather than letting them slip through", () => {
+    const trials = [
+      summaryAt("NCT-nan", Number.NaN),
+      summaryAt("NCT-inf", Number.POSITIVE_INFINITY),
+      summaryAt("NCT-ok", 5),
+    ];
+    expect(withinRadius(trials, 10).map((t) => t.nctId)).toEqual(["NCT-ok"]);
+  });
+
+  it("returns a copy and preserves input order of the retained trials (does not sort)", () => {
+    const input = [summaryAt("NCT-b", 8), summaryAt("NCT-a", 2), summaryAt("NCT-c", 50)];
+    const kept = withinRadius(input, 10);
+    expect(kept).not.toBe(input);
+    // Order preserved from input (sorting is rankBySiteDistance's job, not this filter's).
+    expect(kept.map((t) => t.nctId)).toEqual(["NCT-b", "NCT-a"]);
+  });
+
+  it("radius-bug end to end: an upstream study whose corrected MA site is outside the radius is dropped", () => {
+    // ActivMed in Methuen reports a REAL building geoPoint (not the Boston centroid), so
+    // correctCoordinates keeps it as-is with "facility" precision. From the reported origin
+    // (42.29, -71.08) it is ~30.6 mi away — well outside a 10 mi search — yet upstream's
+    // study-level filter.geo still returns it. slimStudy computes the true distance and
+    // withinRadius drops it; the in-radius BMC study survives.
+    const origin = { lat: 42.29, lon: -71.08 };
+    const methuenStudy = makeStudy({
+      nctId: "NCT07064473",
+      facility: "ActivMed Practices and Research",
+      condition: "Type 2 Diabetes",
+      // A REAL building geoPoint (not the Boston centroid): correctCoordinates keeps it
+      // as-is with "facility" precision, so the distance reflects the true Methuen site.
+      locations: [
+        {
+          facility: "ActivMed Practices and Research",
+          city: "Methuen",
+          state: "Massachusetts",
+          zip: "01844",
+          status: "RECRUITING",
+          geoPoint: { lat: 42.726, lon: -71.191 },
+        },
+      ],
+    });
+    const slimmed = [bmcStudy, methuenStudy]
+      .map((s) => slimStudy(s, origin))
+      .filter((s): s is NonNullable<typeof s> => s !== null);
+    // Both studies have a qualifying recruiting MA site, so both survive slimStudy.
+    expect(slimmed.map((t) => t.nctId).sort()).toEqual(["NCT07043426", "NCT07064473"]);
+    // But Methuen is outside 10 mi, so withinRadius drops it.
+    const kept = withinRadius(slimmed, 10);
+    expect(kept.map((t) => t.nctId)).toEqual(["NCT07043426"]);
   });
 });

@@ -41,6 +41,41 @@ function maStudy(nctId: string, facility: string, condition: string): CtgStudy {
   };
 }
 
+/**
+ * A recruiting MA study whose single site reports a REAL (non-centroid) geoPoint, so
+ * lib/facilities.ts keeps it as-is. Used to place a qualifying MA site a known distance
+ * away — e.g. the Methuen site from the verified radius bug, ~30 mi from the Dorchester-
+ * area origin yet still returned by the upstream study-level geo filter.
+ */
+function realSiteStudy(
+  nctId: string,
+  facility: string,
+  condition: string,
+  geoPoint: { lat: number; lon: number },
+  city = "Methuen",
+): CtgStudy {
+  return {
+    protocolSection: {
+      identificationModule: { nctId, briefTitle: `${facility} — ${condition}` },
+      conditionsModule: { conditions: [condition] },
+      designModule: { phases: ["PHASE2"] },
+      descriptionModule: { briefSummary: `A ${condition} trial.` },
+      contactsLocationsModule: {
+        locations: [
+          {
+            facility,
+            city,
+            state: "Massachusetts",
+            zip: "01844",
+            status: "RECRUITING",
+            geoPoint,
+          },
+        ],
+      },
+    },
+  };
+}
+
 /** A study whose only site is out of state → slimStudy returns null (dropped). */
 function outOfStateStudy(nctId: string): CtgStudy {
   return {
@@ -246,6 +281,121 @@ describe("GET /api/trials — success", () => {
     );
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ trials: [], total: 0 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Radius enforcement — the upstream filter.geo matches at the STUDY level, so a study can
+// come back even when its only recruiting MA site, after facility-coordinate correction,
+// sits outside the requested radius. The handler must drop those and base `total` on the
+// retained count. Reproduces the verified bug: NCT07064473 at a ~30 mi Methuen site that
+// upstream returns for a 10 mi search from a Dorchester-area origin.
+// ---------------------------------------------------------------------------
+
+describe("GET /api/trials — radius enforcement", () => {
+  it("drops a study whose corrected MA site is outside the requested radius and fixes total", async () => {
+    const cond = uniqueCond("diabetes-radius");
+    mockFetchOk({
+      studies: [
+        // BMC corrects to its real building ~2.3 mi from Dorchester → inside 10 mi.
+        maStudy("NCT07043426", "Boston Medical Center", cond),
+        // Methuen reports a real (non-centroid) geoPoint ~30 mi away → upstream returns it
+        // for a study-level geo match, but the site itself is far outside 10 mi.
+        realSiteStudy("NCT07064473", "ActivMed Practices and Research", cond, {
+          lat: 42.726,
+          lon: -71.191,
+        }),
+      ],
+      totalCount: 2,
+    });
+
+    const res = await GET(
+      makeRequest({
+        cond,
+        lat: String(DORCHESTER.lat),
+        lon: String(DORCHESTER.lon),
+        radius: "10",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // Only the in-radius BMC study survives; the far Methuen site is dropped.
+    expect(body.trials.map((t: { nctId: string }) => t.nctId)).toEqual(["NCT07043426"]);
+    // total reflects the retained, in-radius count — NOT the upstream study count.
+    expect(body.total).toBe(1);
+    expect(body.trials[0].distanceMi).toBeLessThanOrEqual(10);
+  });
+
+  it("keeps both studies when a larger radius covers the far site", async () => {
+    const cond = uniqueCond("diabetes-wide");
+    mockFetchOk({
+      studies: [
+        maStudy("NCT07043426", "Boston Medical Center", cond),
+        realSiteStudy("NCT07064473", "ActivMed Practices and Research", cond, {
+          lat: 42.726,
+          lon: -71.191,
+        }),
+      ],
+      totalCount: 2,
+    });
+
+    // The Methuen site is ~30 mi away, so a 25 mi search still excludes it, but a wide
+    // enough radius (here the upstream-independent helper bound) includes it. Use 35 mi.
+    const res = await GET(
+      makeRequest({
+        cond,
+        lat: String(DORCHESTER.lat),
+        lon: String(DORCHESTER.lon),
+        radius: "35",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.total).toBe(2);
+    // Still ranked nearest-first: BMC before the far Methuen site.
+    expect(body.trials[0].nctId).toBe("NCT07043426");
+    expect(body.trials[1].nctId).toBe("NCT07064473");
+    expect(body.trials[1].distanceMi).toBeGreaterThanOrEqual(body.trials[0].distanceMi);
+  });
+
+  it("includes a site sitting exactly on the radius boundary", async () => {
+    const cond = uniqueCond("boundary");
+    // Place a real-geoPoint site due south of the origin at a known distance, then set the
+    // radius to that exact distance (rounded down to the integer mile the UI would send).
+    // 0.1 deg latitude south of Dorchester ≈ 6.9 mi; we assert it is kept at that radius.
+    const boundaryGeo = { lat: DORCHESTER.lat - 0.1, lon: DORCHESTER.lon };
+    mockFetchOk({
+      studies: [realSiteStudy("NCT-BOUNDARY", "Boundary Clinic", cond, boundaryGeo, "Quincy")],
+      totalCount: 1,
+    });
+
+    // First learn the exact distance by asking with a generous radius.
+    const probe = await GET(
+      makeRequest({ cond, lat: String(DORCHESTER.lat), lon: String(DORCHESTER.lon), radius: "25" }),
+    );
+    const probeBody = await probe.json();
+    const exactDist: number = probeBody.trials[0].distanceMi;
+
+    // A fresh cond so the cache does not serve the probe's result, with radius === distance.
+    const cond2 = uniqueCond("boundary-exact");
+    mockFetchOk({
+      studies: [realSiteStudy("NCT-BOUNDARY", "Boundary Clinic", cond2, boundaryGeo, "Quincy")],
+      totalCount: 1,
+    });
+    const res = await GET(
+      makeRequest({
+        cond: cond2,
+        lat: String(DORCHESTER.lat),
+        lon: String(DORCHESTER.lon),
+        radius: String(exactDist),
+      }),
+    );
+    const body = await res.json();
+    // Exact-boundary match is retained (distanceMi <= radius, inclusive).
+    expect(body.total).toBe(1);
+    expect(body.trials[0].nctId).toBe("NCT-BOUNDARY");
   });
 });
 
