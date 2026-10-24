@@ -37,6 +37,8 @@ export const vi = {
   "results.error": "Hiện không tải được nghiên cứu.",
   "results.retry": "Thử lại",
   "results.loading": "Đang tìm nghiên cứu…",
+  "results.machineTranslated": "Bản dịch máy",
+  "results.originalTitle": "Tiêu đề gốc bằng tiếng Anh:",
   "trial.plainLoading": "Đang chuẩn bị bản giới thiệu dễ hiểu…",
   "trial.what": "Nghiên cứu này về điều gì",
   "trial.do": "Bạn sẽ làm gì",

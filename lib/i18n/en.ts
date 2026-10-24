@@ -42,6 +42,8 @@ export const en = {
   "results.error": "We couldn't load studies right now.",
   "results.retry": "Try again",
   "results.loading": "Looking for studies…",
+  "results.machineTranslated": "Machine translation",
+  "results.originalTitle": "Original title in English:",
 
   "trial.plainLoading": "Writing this study in plain language…",
   "trial.what": "What this study is about",

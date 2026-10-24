@@ -37,6 +37,8 @@ export const pt = {
   "results.error": "Não conseguimos carregar os estudos agora.",
   "results.retry": "Tentar novamente",
   "results.loading": "Buscando estudos…",
+  "results.machineTranslated": "Tradução automática",
+  "results.originalTitle": "Título original em inglês:",
   "trial.plainLoading": "Preparando uma versão simples do estudo…",
   "trial.what": "Sobre o que é este estudo",
   "trial.do": "O que você faria",

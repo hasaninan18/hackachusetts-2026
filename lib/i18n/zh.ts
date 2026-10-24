@@ -37,6 +37,8 @@ export const zh = {
   "results.error": "目前无法加载研究。",
   "results.retry": "重试",
   "results.loading": "正在查找研究…",
+  "results.machineTranslated": "机器翻译",
+  "results.originalTitle": "英文原标题：",
   "trial.plainLoading": "正在准备简单易懂的研究介绍…",
   "trial.what": "这项研究的内容",
   "trial.do": "您需要做什么",
