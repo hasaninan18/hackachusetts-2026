@@ -14,7 +14,14 @@ Format: `- [time] <area> — what Kiro did / what it caught / why it mattered`
 <!-- e.g. - [time] spec:trial-search — generated EARS requirements; design; N tasks. -->
 
 ## Hooks
-<!-- e.g. - [time] hook:reading-level — flagged a trial summary at grade 11; rewrote to grade 7. -->
+- [Step 3] hooks — Built 3 agent hooks in `.kiro/hooks/` (+ backing scripts in `tests/`):
+  - **test-on-save** (`PostFileSave`, matcher `^(lib|tests)/.*\.ts$`) → runs `npm test` (Vitest, `vitest run`, no watch) and reports failures.
+  - **copy-guard** (`PostFileSave`, matches `lib/i18n/**`, `components/**`, `app/**/*.tsx`) → runs `tests/copy-guard.mjs`: flags forbidden phrases in EN/ES/PT/HT/ZH and English copy above 8th-grade reading level. Dependency-free; grades only real sentences (≥8 words, ends in punctuation) to avoid false positives on short UI labels; exempts the fixed disclaimer.
+  - **update-docs** (manual, `UserPromptSubmit` matcher "update docs") → `tests/update-docs.mjs`: appends a dated entry to KIRO_LOG.md and refreshes the README "How we used Kiro" section.
+- [Step 3] hook:copy-guard TEST — Wrote a scratch file with the forbidden phrase "you qualify for this trial"; copy-guard flagged it and exited 2:
+  `[forbidden:en] "you qualify" in tests/scratch-copy.ts -> Good news — you qualify for this trial.`
+  Also verified Spanish detection (`[forbidden:es] "usted califica"`). Reverted the scratch file. **(screenshot this firing for the demo video.)**
+- [Step 3] hook:copy-guard FINDING — Running copy-guard on the real `lib/i18n/en.ts` flagged one legit over-limit string (grade 8.4 > 8): `results.tryWider` "Try a larger distance, or a more general word (for example \"diabetes\" instead of \"type 2 diabetes\")." Flagged to Neil (owner of i18n) to simplify — not editing his file directly per ownership rules.
 
 ## MCP
 <!-- e.g. - [time] mcp:fetch — probed ClinicalTrials.gov live to confirm eligibilityModule field shape before writing the parser. -->

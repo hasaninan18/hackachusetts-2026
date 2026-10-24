@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Test on save",
+      "trigger": "PostFileSave",
+      "description": "When a lib/**/*.ts or tests/**/*.ts file is saved, run the Vitest suite once (no watch mode) and report failures.",
+      "matcher": "^(lib|tests)/.*\\.ts$",
+      "action": {
+        "type": "command",
+        "command": "npm test --silent 2>&1 | tail -40",
+        "timeout": 180
+      }
+    }
+  ]
+}
