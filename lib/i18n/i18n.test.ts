@@ -3,13 +3,15 @@ import { LANGS } from "../types";
 import { dictionaries } from "./dictionaries";
 import { en, type MessageKey } from "./en";
 import { format } from "./index";
+import { findForbiddenPhrase } from "../../tests/copy-guard.mjs";
 
 const keys = Object.keys(en) as MessageKey[];
 const placeholders = (s: string) => (s.match(/\{\w+\}/g) ?? []).sort();
 
-// Words that would claim a decision only the study team can make. Includes the per-language
-// phrases from .kiro/steering/safety.md §1. The disclaimer is exempt: §4 fixes its wording
-// ("The study team decides eligibility") and it is the one place the concept may appear.
+// Two layers. (1) Broad word stems per language, stricter than phrases (any "eligib…" etc.).
+// (2) The exact safety.md §1 phrase list, imported from tests/copy-guard.mjs so the hook, the
+// safety property test and this file share one list. The disclaimer is exempt from both: §4 fixes
+// its wording ("The study team decides eligibility") and it is the one place the concept may appear.
 const FORBIDDEN: Record<string, RegExp> = {
   en: /eligib|qualif|you're a match|meet the criteria|guaranteed|accepted|approved for/i,
   es: /elegib|califica|cualifica|cumple (con )?los requisitos/i,
@@ -37,6 +39,13 @@ describe("dictionaries", () => {
     const dict: Partial<Record<MessageKey, string>> = lang === "en" ? en : dictionaries[lang];
     for (const [k, s] of Object.entries(dict) as [MessageKey, string][]) {
       if (!EXEMPT.includes(k)) expect(s, `${lang} ${k}`).not.toMatch(FORBIDDEN[lang]);
+    }
+  });
+
+  it.each([...LANGS])("%s contains no safety.md phrase from the shared copy-guard list", (lang) => {
+    const dict: Partial<Record<MessageKey, string>> = lang === "en" ? en : dictionaries[lang];
+    for (const [k, s] of Object.entries(dict) as [MessageKey, string][]) {
+      if (!EXEMPT.includes(k)) expect(findForbiddenPhrase(s), `${lang} ${k}`).toBeNull();
     }
   });
 

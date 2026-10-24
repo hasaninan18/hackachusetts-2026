@@ -86,32 +86,54 @@ describe("forbidden-phrase checker properties", () => {
     );
   });
 
-  it("appending a forbidden phrase flags it regardless of surrounding casing/whitespace", () => {
-    const phraseArb = fc.constantFrom(...ALL_FORBIDDEN.map((f) => f.phrase));
+  it("appending a forbidden phrase flags it (any casing) and tags its language", () => {
+    const entryArb = fc.constantFrom(...ALL_FORBIDDEN);
     fc.assert(
-      fc.property(anyText, phraseArb, anyText, (prefix, phrase, suffix) => {
+      fc.property(anyText, entryArb, anyText, (prefix, { lang, phrase }, suffix) => {
         // case-insensitive: upper-casing the phrase must still be caught
-        const text = prefix + phrase.toUpperCase() + suffix;
-        expect(containsForbiddenPhrase(text)).toBe(true);
+        const hit = findForbiddenPhrase(prefix + phrase.toUpperCase() + suffix);
+        expect(hit).not.toBeNull();
+        expect(containsForbiddenPhrase(prefix + phrase + suffix)).toBe(true);
+        // the language tag is only well-defined when the padding contains no other phrase
+        if (!findForbiddenPhrase(prefix) && !findForbiddenPhrase(suffix)) expect(hit.lang).toBe(lang);
       }),
     );
   });
 
-  // Vietnamese is now a scanned language (safety.md §1). These phrases are machine-drafted and
-  // NEED REVIEW by a Vietnamese speaker; the test only asserts the checker tags them as vi.
-  it("detects each Vietnamese forbidden phrase and tags it lang=vi", () => {
-    const viPhrases = ALL_FORBIDDEN.filter((f) => f.lang === "vi").map((f) => f.phrase);
-    expect(viPhrases.length).toBeGreaterThan(0);
-    const prefixArb = fc.string();
-    const suffixArb = fc.string();
-    for (const phrase of viPhrases) {
-      fc.assert(
-        fc.property(prefixArb, suffixArb, (prefix, suffix) => {
-          const hit = findForbiddenPhrase(prefix + phrase + suffix);
-          expect(hit).not.toBeNull();
-          expect(hit.lang).toBe("vi");
-        }),
-      );
-    }
+  it("flags a forbidden phrase in either Unicode form (NFC or NFD)", () => {
+    const entryArb = fc.constantFrom(...ALL_FORBIDDEN);
+    const formArb = fc.constantFrom("NFC", "NFD");
+    fc.assert(
+      fc.property(fc.string(), entryArb, formArb, (prefix, { phrase }, form) => {
+        expect(findForbiddenPhrase((prefix + " " + phrase).normalize(form))).not.toBeNull();
+      }),
+    );
+  });
+
+  // Fixed examples written independently of the list, so a missing or mistyped phrase fails
+  // (a property drawn from ALL_FORBIDDEN can only re-check what's already in it).
+  // Vietnamese examples are machine-drafted and NEED REVIEW by a Vietnamese speaker.
+  it.each([
+    ["Bạn đủ điều kiện tham gia.", "vi"],
+    ["Bạn có đủ điều kiện tham gia nghiên cứu này.", "vi"],
+    ["Bạn hội đủ điều kiện", "vi"],
+    ["Kết quả được đảm bảo.", "vi"],
+    ["Kết quả được bảo đảm.", "vi"],
+    ["Great news: you're eligible!", "en"],
+    ["Usted califica para este estudio.", "es"],
+    ["Você é elegível.", "pt"],
+    ["Ou kalifye pou etid sa a.", "ht"],
+    ["您符合条件。", "zh"],
+  ])("catches %j as %s", (text, lang) => {
+    expect(findForbiddenPhrase(text)?.lang).toBe(lang);
+    expect(findForbiddenPhrase(text.normalize("NFD"))?.lang).toBe(lang);
+  });
+
+  it.each([
+    "Hãy đảm bảo bạn mang theo giấy tờ.", // "make sure you bring your papers": allowed
+    "Nghiên cứu này có thể phù hợp với bạn.", // "may be a possible fit": allowed
+    "Nhóm nghiên cứu quyết định ai có thể tham gia.", // the vi disclaimer
+  ])("does not flag allowed Vietnamese copy %j", (text) => {
+    expect(findForbiddenPhrase(text)).toBeNull();
   });
 });
