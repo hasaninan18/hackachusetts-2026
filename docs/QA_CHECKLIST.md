@@ -167,9 +167,12 @@ Test with keyboard only, then with a screen reader (VoiceOver / NVDA / TalkBack)
 
 ## 6. Safety checks (non-negotiable — safety.md)
 
+> Gaps in this section were surfaced by a read-only **Kiro Crew** review of this checklist against
+> `.kiro/steering/safety.md` (see `KIRO_LOG.md`). No files were edited by that review.
+
 Run against **every** language, not just English. Use the copy-guard checker as a backstop
-(`node tests/copy-guard.mjs lib/i18n/dictionaries.ts lib/i18n/en.ts`) AND eyeball the live UI,
-including the cached translations.
+(`node tests/copy-guard.mjs lib/i18n/en.ts lib/i18n/es.ts lib/i18n/pt.ts lib/i18n/ht.ts lib/i18n/zh.ts lib/i18n/vi.ts`)
+AND eyeball the live UI, including the cached translations.
 
 ### 6a. Never claim eligibility
 - [ ] No "you are eligible", "you qualify", "you're a match", "you have been accepted", "you meet
@@ -178,9 +181,22 @@ including the cached translations.
 - [ ] Non-English equivalents absent too (safety.md §1 list): ES "usted califica / usted es elegible
       / cumple los requisitos"; PT "você se qualifica / você é elegível / atende aos critérios";
       HT "ou kalifye / ou elijib"; ZH "您符合条件 / 您符合资格 / 您合格".
-- [ ] Quick-check outcomes only ever read as "possible fit — contact the study team", "some answers
-      may rule you out — ask the study team", or "not sure — the study team can tell you".
+- [ ] **Vietnamese (VI) equivalents absent too** (safety.md §1, machine-drafted — pending a
+      Vietnamese speaker's review): "bạn đủ điều kiện", "bạn đủ tiêu chuẩn", "bạn phù hợp", "bạn đáp
+      ứng các tiêu chí", "được bảo đảm".
+- [ ] Quick-check **outcome wording is checked in every shipped language** (EN/ES/PT/HT/ZH, plus VI
+      if it ships), and matches **whichever outcome set the team ships** — the two-outcome set
+      ("possible fit — contact the study team" / "some answers may rule you out — ask the study
+      team") or, if adopted, the three-outcome set that adds "not sure — the study team can tell
+      you". Never any wording that implies the user is eligible.
 - [ ] The forbidden-phrase check was run on the **cached translations**, not just the English source.
+- [ ] **New-language gate:** before any new language ships, its forbidden-phrase equivalents exist
+      in `safety.md` §1 (and in `tests/copy-guard.mjs`). A language is not demoed until this is done.
+
+### 6a-bis. Plain language (safety.md §2)
+- [ ] The **main trial card** (what it studies / what you'd do / time) and the **quick-check
+      questions** read at **≤ 8th-grade reading level** — short sentences, common words, medical
+      terms explained in plain words. Check the English source; copy-guard grades the English prose.
 
 ### 6b. Disclaimer present
 - [ ] Every trial view shows exactly: "TrialPath is not medical advice. The study team decides
@@ -192,6 +208,13 @@ including the cached translations.
 - [ ] When a trial lists no contact, the view says so and points to ClinicalTrials.gov instead of
       showing a blank.
 
+### 6c-bis. Contact + disclaimer on non-trial pages
+- [ ] The **disclaimer** ("TrialPath is not medical advice. The study team decides eligibility.")
+      is present on **non-trial pages too** — the search page, the results list, and the empty /
+      error states — not only on a trial view.
+- [ ] Guidance to **contact the study team** is reachable from those non-trial pages (or the page
+      makes clear the study team decides), so the "study team decides" framing is never dropped.
+
 ### 6d. Identifiers verbatim
 - [ ] NCT IDs appear byte-for-byte identical across all languages (no translation/reformat).
 - [ ] Phone numbers appear byte-for-byte identical across all languages; the `tel:` link dials the
@@ -201,8 +224,18 @@ including the cached translations.
 
 ### 6e. Privacy
 - [ ] Quick-check answers never leave the browser (no network request carries them; nothing is
-      logged or stored). Spot-check the Network tab while answering.
+      stored). Spot-check the Network tab while answering.
+- [ ] **Quick-check answers are never logged server-side** — no route handler, analytics, or server
+      log records the user's age / sex / healthy-volunteer / question answers.
 - [ ] Only the search query (condition + location + distance) is sent to external APIs.
+
+### 6f. Scope boundaries (safety.md §5/§6)
+- [ ] **Ranking is by distance and factual filters only** (recruiting status, location) — never by
+      anything implying medical suitability or a likelihood of fitting.
+- [ ] **No diagnosis or treatment advice** anywhere: the app does not diagnose, recommend treatment,
+      or interpret medical results, in any language.
+- [ ] **Unclear or borderline copy defaults to the cautious "contact the study team" framing** — if
+      wording could be read as an eligibility judgement, it is reworded to point at the study team.
 
 ---
 
