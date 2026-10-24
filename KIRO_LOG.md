@@ -30,6 +30,17 @@ Format: `- [time] <area> — what Kiro did / what it caught / why it mattered`
 
 ## MCP
 <!-- e.g. - [time] mcp:fetch — probed ClinicalTrials.gov live to confirm eligibilityModule field shape before writing the parser. -->
+- [2026-10-24 ~16:4x UTC] mcp:fetch CONNECTED + RAN in IDE — The `fetch` MCP server (`uvx mcp-server-fetch`, from `.kiro/settings/mcp.json`) connected in the IDE; its `fetch` tool loaded and executed real network calls this session. Observed, not assumed:
+  - **MBTA V3 `/stops` — CONFIRMED live.** Fetched `https://api-v3.mbta.com/stops?filter[latitude]=42.3626&filter[longitude]=-71.0686&filter[radius]=0.01` (Mass General Hospital area, Boston) via the MCP fetch tool → 261 stops, JSON:API format. **`wheelchair_boarding` confirmed present** with real values: **1** (accessible; 243 stops, e.g. "Charles/MGH" parent station, lat 42.361166/lon -71.070628) and **2** (not accessible; 18 stops, e.g. "Causeway St" id `door-north-causewayexite`). **Value 0 (no info): NOT seen** in this response — only 1 and 2 occurred. MBTA puts coordinates in `attributes.latitude`/`attributes.longitude` (not a nested `geoPoint`).
+  - **ClinicalTrials.gov v2 `/api/v2/studies` — CONFIRMED live (after unblocking).** Sequence observed: (1) first attempt was **blocked by robots.txt** — `https://clinicaltrials.gov/robots.txt` has `Disallow: /api/`, so `mcp-server-fetch` refused the v2 URL for its autonomous user-agent; (2) **Akash added `--ignore-robots-txt`** to the fetch server args in `.kiro/settings/mcp.json`, but the immediate retry was **still blocked** because the running server hadn't picked up the new args; (3) after **Akash restarted the fetch server** with the flag, the retry **succeeded**. Fetched `https://clinicaltrials.gov/api/v2/studies?query.locn=Massachusetts&filter.overallStatus=RECRUITING&pageSize=5` via the MCP fetch tool → 5 studies (NCT05663151, NCT07104331, NCT07417137, NCT07222683, NCT05336695). **Fields confirmed from the MCP response:**
+    - `eligibilityModule.minimumAge` — present on all 5. Real values: "18 Years" (×3), "1 Year", "55 Years".
+    - `eligibilityModule.maximumAge` — present on only 2 of 5 ("90 Years" on NCT05663151 and NCT05336695); **absent** on the other 3 (NCT07104331, NCT07417137, NCT07222683).
+    - `eligibilityModule.sex` — present on all 5; every value was "ALL".
+    - `eligibilityModule.healthyVolunteers` — present on all 5; boolean, `false` ×4, `true` ×1 (NCT05336695).
+    - `eligibilityModule.eligibilityCriteria` — present on all 5; free text, 396–4189 chars.
+    - `contactsLocationsModule.locations[].geoPoint` — present on **all 10 locations across the 5 studies** (0 without). Real example: Boston, MA → `{lat: 42.35843, lon: -71.05977}`; Lexington, MA → `{lat: 42.44732, lon: -71.2245}`.
+    - `centralContacts` — present on 4 of 5; real example NCT05663151: name "Suzanne Pineles, PhD", role "CONTACT", phone "857-364-5906", email "suzanne.pineles@va.gov".
+  - **CT.gov edge cases actually seen:** missing `maximumAge` — **YES** (3 of 5 studies had no `maximumAge` key). Missing `centralContacts` — **YES** (NCT07104331 had none). "N/A" string — **NOT seen** (absent fields were simply omitted keys, not "N/A"). "No maximum" string — **NOT seen**. No `geoPoint` — **NOT seen** (all 10 locations had one). Missing `minimumAge` — **NOT seen** (all 5 had it).
 
 ## Property-based tests (fast-check)
 <!-- e.g. - [time] pbt:quickCheck — property "never returns eligible" caught a branch that returned 'eligible' for empty criteria. -->
