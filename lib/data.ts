@@ -111,9 +111,16 @@ function toDetail(body: unknown): TrialDetailWithOutcomes {
   };
 }
 
-export async function getTrial(nctId: string, mock: boolean): Promise<TrialDetailWithOutcomes | null> {
+// `origin` is the search location. The detail route then picks the site nearest to it (the
+// same site the results list showed) instead of the study's first Massachusetts site.
+export async function getTrial(
+  nctId: string,
+  mock: boolean,
+  origin?: { lat: number; lon: number },
+): Promise<TrialDetailWithOutcomes | null> {
   if (mock) return getMockTrial(nctId) ?? null;
-  const res = await fetch(`${await apiBase()}/api/trials/${encodeURIComponent(nctId)}`, {
+  const qs = origin ? `?${new URLSearchParams({ lat: String(origin.lat), lon: String(origin.lon) })}` : "";
+  const res = await fetch(`${await apiBase()}/api/trials/${encodeURIComponent(nctId)}${qs}`, {
     cache: "no-store",
   });
   if (res.status === 404) return null;
