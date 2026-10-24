@@ -1,30 +1,38 @@
 # Structure & Conventions (TrialPath MA)
 
-## Folder layout
+## Folder layout (matches Neil's scaffold + TASKS.md ownership)
 ```
 app/
-  page.tsx                 # search page
-  trials/[nct]/page.tsx    # trial detail (plain-language card, quick-check, getting-there)
+  [lang]/**                # localized pages (Neil)
   api/
-    trials/route.ts        # GET /api/trials
-    trials/[nct]/route.ts  # GET /api/trials/[nct]
-    simplify/route.ts      # POST /api/simplify (LLM + cache)
-components/                # presentational React components
+    trials/route.ts        # GET /api/trials            (Hasan)
+    trials/[nct]/route.ts  # GET /api/trials/[nct]       (Hasan)
+    simplify/route.ts      # POST /api/simplify (LLM)    (Hasan)
+components/                # presentational React components (Neil)
 lib/                       # PURE functions — no I/O, easy to test
-  age.ts                   # parseAge("18 Years") -> number | null
-  distance.ts              # haversine(a, b)
-  rank.ts                  # rankBySiteDistance(trials, origin)
-  quickCheck.ts            # quickCheck(profile, eligibility) -> never "eligible"
-  reading.ts               # readingGrade(text)
+  types.ts                 # shared types                (Neil)
+  geo.ts                   # haversineMiles, nearestSite (Neil)
+  quickCheck.ts            # quickCheck -> never "eligible" (Neil)
+  i18n/**                  # translations/strings        (Neil)
+  mock/** , mock.ts        # mock data until APIs ready   (Neil)
+  clinicaltrials.ts        # ClinicalTrials.gov client   (Hasan)
+  mbta.ts                  # MBTA stops client           (Hasan)
+  bedrock.ts               # Bedrock Converse client     (Hasan)
+  geo.test.ts              # tests live NEXT TO the code (co-located)
 data/                      # static assets (MA ZIP centroids, demo fixtures)
-lib/__tests__/             # unit + property-based tests (fast-check)
-docs/                      # PLAN.md, etc.
+tests/                     # cross-cutting / property tests (Akash)
+docs/                      # PLAN.md, TASKS.md
 .kiro/
   steering/                # safety.md, product.md, tech.md, structure.md
-  specs/                   # trial-search, fit-check, getting-there, translation
-  hooks/                   # test-on-save, reading-level guard, update-docs
+  specs/                   # trial-search-api, getting-there, simplify, trialpath-ui
+  hooks/                   # test-on-save, copy-guard, update-docs
 KIRO_LOG.md                # running log of what Kiro did (feeds the write-up)
 ```
+
+### Folder ownership (avoid merge conflicts — from docs/TASKS.md)
+- **Hasan** -> `app/api/**`, new `lib/clinicaltrials.ts`, `lib/mbta.ts`, `lib/bedrock.ts` (reuses Neil's `lib/types.ts`, `lib/geo.ts`).
+- **Neil** -> `app/[lang]/**`, `components/**`, styles, `lib/types.ts`, `lib/geo.ts`, `lib/quickCheck.ts`, `lib/i18n/**`, `lib/mock/**`.
+- **Akash** -> `.kiro/**`, `tests/**`, `README.md`, `KIRO_LOG.md`.
 
 ## Core principle: pure logic in `lib/`
 - Business logic lives in `lib/` as **pure functions** (no fetch, no randomness, no clock) so it is trivially unit- and property-testable.
@@ -55,7 +63,8 @@ Don't test what the type system already guarantees. Test behavior:
 - **translation invariants** (string-level): output preserves every NCT id, phone, and email from the input verbatim.
 
 ## Testing conventions
-- Tests live in `lib/__tests__/*.test.ts`.
+- Tests live **next to the code** they test: `lib/geo.ts` -> `lib/geo.test.ts` (matches Neil's layout; do **not** use `lib/__tests__/`).
+- Cross-cutting / property-test suites that aren't tied to one module go in `tests/` (Akash's folder).
 - Use **Vitest** (run once with `--run`, never watch mode in CI/sandbox).
 - **fast-check** for the invariants above. Run tests via the on-save hook for `lib/**`.
 
