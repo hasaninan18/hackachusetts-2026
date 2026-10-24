@@ -1,132 +1,160 @@
-// Semantic safety validation for the simplify pipeline (spec: simplify).
+// Semantic safety BACKSTOP for the simplify pipeline (spec: simplify) — SDK-FREE.
 //
-// WHY THIS MODULE EXISTS (production semantic-safety fix):
-// HTTP 200, green shape/safety validators, preserved protected values, and a
-// source_criterion substring that EXISTS in the criteria text are all NECESSARY but NOT
-// SUFFICIENT for a question to be correct. The live defect that motivated this module:
+// WHY THIS MODULE EXISTS, AND HOW IT CHANGED (the default-deny redesign):
+// Previously this module tried to VALIDATE whatever questions the MODEL wrote. That design
+// was DEFAULT-ALLOW: it accepted any question and rejected only the specific mismatches it
+// had been taught (the T1/T2 diabetes family, section polarity, some staff-only keywords),
+// so anything outside those taught patterns passed — an unrelated subject ("Do you have
+// asthma?" cited to a diabetes criterion), a negated question ("Do you NOT have type 2
+// diabetes?") whose rule was never flipped, or an age question with the wrong polarity.
 //
-//   question text:     "Do you have type 2 diabetes?"
-//   ruleOutIf:         "yes"
-//   kind:              "exclusion"
-//   source_criterion:  "Patients with Type 1 Diabetes Mellitus (T1DM)."  <- EXISTS in criteria
+// The checklist is now CONSTRUCTED BY THE SERVER from lib/simplify-mappings.ts. The model
+// authors only prose. This module is therefore no longer a validator of model creativity:
+// it is a VERIFIER that the server's own constructed questions still agree, byte-for-byte,
+// with the mapping registry AND with the study's real registry facts (fail closed if not).
+// It is pure + SDK-free so it unit-tests without Bedrock and never drags in the AWS SDK.
 //
-// The quote is a real substring of the criteria, so substring matching PASSED — but the
-// question asks about TYPE 2 while the cited evidence is about TYPE 1, and the declared
-// rule-out ("answer yes -> ruled out") would wrongly exclude a patient who HAS type 2
-// diabetes (which is the study's INCLUSION condition). This is a dangerous meaning
-// mismatch that no shape/substring check catches.
-//
-// This module is the SEMANTIC AUTHORITY. It is SDK-FREE (pure functions, no I/O) so it
-// can be unit-tested without Bedrock and never drags the AWS SDK into any bundle. The
-// orchestrator in lib/bedrock.ts runs these checks as an `extraValidate` step; a failure
-// triggers the existing bounded retry/fallback and, if no attempt produces a semantically
-// valid output, the pipeline returns a safe error (the route turns that into a 503). We
-// FAIL CLOSED: a question we cannot positively confirm as supported is REJECTED.
-//
-// DESIGN PRINCIPLE (per the fix brief): prefer DETERMINISTIC supported mappings derived
-// from the registry criteria over trusting arbitrary model-asserted rule-out logic.
-// Prompt text and substring matching alone are explicitly insufficient.
+// It additionally keeps the structural guards the redesign requires as a defense-in-depth
+// layer: NEGATION (a question's polarity-bearing text must not be negated relative to its
+// rule) and AGE POLARITY (an age question must carry the inclusion/ruleOutIf="no" logic and
+// a structured-age citation whose field+value match the study).
 import type { SimplifyModel, SimplifyQuestion } from "./bedrock-types";
 import type { TrialDetail } from "./types";
+import type { Lang } from "./types";
+import {
+  FREE_TEXT_MAPPINGS,
+  AGE_MAPPINGS,
+  hasQuestionWording,
+  type WordingLang,
+  norm as mapNorm,
+  splitSections,
+} from "./simplify-mappings";
+import { isStructuredAgeCriterion, parseStructuredAgeCitation } from "./bedrock-age";
 
 // ---------------------------------------------------------------------------
-// Text normalization
+// Text normalization (shared spelling with the mapping registry).
 // ---------------------------------------------------------------------------
 /** Collapse whitespace, lower-case, trim — for robust substring/keyword comparison. */
-export function norm(s: string): string {
-  return s.replace(/\s+/g, " ").trim().toLowerCase();
-}
+export const norm = mapNorm;
 
 // ---------------------------------------------------------------------------
-// (1) Inclusion vs Exclusion polarity of the CITED EVIDENCE
+// (1) Section polarity of CITED EVIDENCE — delegated to the single heading authority.
 // ---------------------------------------------------------------------------
-// The registry criteria text is sectioned into "Inclusion Criteria:" and
-// "Exclusion Criteria:". We determine, for a given quoted source_criterion, which SECTION
-// it lives in. That is the authoritative inclusion/exclusion polarity of the evidence —
-// NOT the model's self-declared `kind`. If the model's `kind` disagrees with the section
-// the quote actually came from, that is a mismatch and we reject.
-
 export type CriterionPolarity = "inclusion" | "exclusion" | "unknown";
-
-const INCLUSION_HEADER_RE = /\binclusion\b(?:\s*criteria)?\s*:?/i;
-const EXCLUSION_HEADER_RE = /\bexclusion\b(?:\s*criteria)?\s*:?/i;
-
-/**
- * Split the criteria text into the inclusion block and the exclusion block (normalized).
- * If no headers are present, everything is treated as the inclusion block (registries
- * commonly list only inclusion criteria), and the exclusion block is empty.
- */
-export function splitCriteriaSections(criteriaText: string): {
-  inclusion: string;
-  exclusion: string;
-} {
-  const text = criteriaText ?? "";
-  const incMatch = INCLUSION_HEADER_RE.exec(text);
-  const excMatch = EXCLUSION_HEADER_RE.exec(text);
-  // No exclusion header: all of it is inclusion-ish.
-  if (!excMatch) {
-    return { inclusion: norm(text), exclusion: "" };
-  }
-  const excStart = excMatch.index;
-  // Inclusion runs from the inclusion header (or start) up to the exclusion header.
-  const incStart = incMatch ? incMatch.index : 0;
-  const inclusion = text.slice(incStart, excStart);
-  const exclusion = text.slice(excStart);
-  return { inclusion: norm(inclusion), exclusion: norm(exclusion) };
-}
 
 /**
  * Determine the authoritative polarity of a quoted source_criterion by locating it in the
- * inclusion vs exclusion section of the criteria text. Returns "unknown" when the quote is
- * not substantively present in either section (callers treat unknown as a failure to
- * ground, i.e. reject — fail closed).
+ * inclusion vs exclusion section of the criteria text, using the SAME explicit-heading
+ * splitter the mapping registry uses. Returns "unknown" when the quote is not substantively
+ * present in exactly one well-delimited section. Missing/ambiguous headings yield null
+ * sections, so a quote there is "unknown" (callers reject — fail closed; headings never
+ * silently default to inclusion).
  */
 export function evidencePolarity(
   sourceCriterion: string,
   criteriaText: string,
 ): CriterionPolarity {
-  const { inclusion, exclusion } = splitCriteriaSections(criteriaText);
+  const { inclusion, exclusion } = splitSections(criteriaText);
   const quote = norm(sourceCriterion);
   if (!quote) return "unknown";
-  const inInclusion = inclusion.includes(quote);
-  const inExclusion = exclusion.includes(quote);
+  const inInclusion = inclusion !== null && inclusion.includes(quote);
+  const inExclusion = exclusion !== null && exclusion.includes(quote);
   if (inInclusion && !inExclusion) return "inclusion";
   if (inExclusion && !inInclusion) return "exclusion";
-  // Present in neither, or ambiguously in both -> we cannot attribute a polarity.
   return "unknown";
 }
 
-// ---------------------------------------------------------------------------
-// (2) Condition SUBJECT matching (question subject vs evidence subject)
-// ---------------------------------------------------------------------------
-// The condition a question ASKS ABOUT must be the condition the cited evidence DESCRIBES.
-// The motivating bug is diabetes type: a "type 2 diabetes" question must not be grounded in
-// a "Type 1 Diabetes" criterion. We detect a small set of mutually-exclusive condition
-// CLASSES where confusing one for another is clinically dangerous, and additionally apply a
-// GENERAL principle: salient condition nouns named in the question must appear in the quote.
-
-/** A named condition class with the markers that identify it in free text. */
-interface ConditionClass {
-  id: string;
-  /** Regexes that indicate this specific class is present. */
-  markers: RegExp[];
+// Kept for test/back-compat callers: a simple section splitter view.
+export function splitCriteriaSections(criteriaText: string): {
+  inclusion: string;
+  exclusion: string;
+} {
+  const s = splitSections(criteriaText);
+  return { inclusion: s.inclusion ?? "", exclusion: s.exclusion ?? "" };
 }
 
-// Mutually-exclusive classes: if the question is about one and the evidence is about a
-// DIFFERENT one in the same family, that is a subject mismatch.
+// ---------------------------------------------------------------------------
+// (2) Negation guard — a question's text must not be negated relative to its rule.
+// ---------------------------------------------------------------------------
+// A yes/no rule-out question carries an implicit polarity: "Do you have X?" asks about the
+// PRESENCE of X. A negated phrasing ("Do you NOT have X?", "Do you not currently receive
+// X?") flips the meaning so that answering "yes"/"no" means the OPPOSITE of what the fixed
+// rule assumes. Because our question wording is server-authored from the registry we never
+// emit a negation; this guard rejects one if it ever appears (defense in depth).
+const NEGATION_RES: RegExp[] = [
+  /\bdo\s+you\s+not\b/,
+  /\bare\s+you\s+not\b/,
+  /\bhave\s+you\s+not\b/,
+  /\bnot\s+have\b/,
+  /\bdon'?t\b/,
+  /\bdoesn'?t\b/,
+  /\baren'?t\b/,
+  /\bhaven'?t\b/,
+  /\bnever\b/,
+  /\bno\s+history\s+of\b/,
+  /\bwithout\b/,
+  // Spanish negations (usted register questions).
+  /\bno\s+tiene\b/,
+  /\bno\s+está\b/,
+  /\bnunca\b/,
+  /\bsin\s+/,
+];
+/** True if the question text carries a meaning-flipping negation. */
+export function hasNegation(questionText: string): boolean {
+  const n = norm(questionText);
+  return NEGATION_RES.some((re) => re.test(n));
+}
+
+// ---------------------------------------------------------------------------
+// (3) Age SUBJECT parsing — identifies an age question by its wording.
+// ---------------------------------------------------------------------------
+const AGE_SUBJECT_RES: RegExp[] = [
+  /\b(?:at\s+least|older\s+than|younger\s+than|over|under|aged)\s+(\d{1,3})\b/,
+  /\b(\d{1,3})\s*(?:years?|yrs?)?\s*(?:of\s+age\s*)?(?:or|and)\s+(?:older|younger|above|below|more|less|over|under|up)\b/,
+  /\b(\d{1,3})\s*(?:years?|yrs?)\s*(?:of\s+age)?\s*old\b/,
+  // Spanish: "al menos 18 años", "18 años o menos", "18 años o más".
+  /\bal\s+menos\s+(\d{1,3})\s*años\b/,
+  /\b(\d{1,3})\s*años\s*(?:o|y)\s+(?:menos|más|mas|mayor|menor)\b/,
+];
+export interface AgeSubject {
+  value: number;
+  bound: "min" | "max";
+}
+/** Parse an age SUBJECT out of a question's text, or null if the question is not about age. */
+export function parseAgeSubject(questionText: string): AgeSubject | null {
+  const n = norm(questionText);
+  let raw: string | undefined;
+  for (const re of AGE_SUBJECT_RES) {
+    const m = re.exec(n);
+    if (m && m[1] !== undefined) {
+      raw = m[1];
+      break;
+    }
+  }
+  if (raw === undefined) return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return null;
+  const isUpper =
+    /younger\s+than|\bunder\b|or\s+younger|and\s+younger|or\s+below|or\s+less|\bup\s+to\b|o\s+menos|o\s+menor/.test(
+      n,
+    );
+  return { value, bound: isUpper ? "max" : "min" };
+}
+
+// ---------------------------------------------------------------------------
+// (4) Condition SUBJECT matching — kept as a defense-in-depth cross-check.
+// ---------------------------------------------------------------------------
+interface ConditionClass {
+  id: string;
+  markers: RegExp[];
+}
 const DIABETES_T1: ConditionClass = {
   id: "diabetes_type_1",
-  // English + the supported languages' phrasings (es/pt "tipo 1", ht "tip 1",
-  // vi "loai 1/type 1", zh "1 xing/1 xing tang niao bing"). source_criterion stays English
-  // but a TRANSLATED question text must still be classifiable so the subject check holds.
   markers: [
     /type\s*1\s*diabetes/,
     /\bt1dm\b/,
     /type\s*i\s*diabetes/,
-    /diabetes\s*(?:mellitus\s*)?tipo?\s*1/, // es/pt: "diabetes tipo 1"
-    /diabetes\s*tip\s*1/, // ht
-    /(?:tieu\s*duong|dai\s*thao\s*duong|đái\s*tháo\s*đường|tiểu\s*đường)\s*(?:loại|loai|type|týp|typ)\s*1/, // vi
-    /1\s*型\s*糖尿病/, // zh "1型糖尿病"
+    /diabetes\s*(?:mellitus\s*)?tipo?\s*1/,
   ],
 };
 const DIABETES_T2: ConditionClass = {
@@ -135,24 +163,15 @@ const DIABETES_T2: ConditionClass = {
     /type\s*2\s*diabetes/,
     /\bt2dm\b/,
     /type\s*ii\s*diabetes/,
-    /diabetes\s*(?:mellitus\s*)?tipo?\s*2/, // es/pt: "diabetes tipo 2"
-    /diabetes\s*tip\s*2/, // ht
-    /(?:tieu\s*duong|dai\s*thao\s*duong|đái\s*tháo\s*đường|tiểu\s*đường)\s*(?:loại|loai|type|týp|typ)\s*2/, // vi
-    /2\s*型\s*糖尿病/, // zh "2型糖尿病"
+    /diabetes\s*(?:mellitus\s*)?tipo?\s*2/,
   ],
 };
-
-/** Families whose members are mutually exclusive subjects. */
 const MUTUALLY_EXCLUSIVE_FAMILIES: ConditionClass[][] = [[DIABETES_T1, DIABETES_T2]];
-
 function classMatches(cls: ConditionClass, text: string): boolean {
   return cls.markers.some((re) => re.test(text));
 }
-
 /**
  * Detect a condition-SUBJECT mismatch between the question text and the cited evidence.
- * For each mutually-exclusive family, if the QUESTION names one member and the EVIDENCE
- * names a DIFFERENT member (and not the one the question names), that is a hard mismatch.
  * Returns an error string, or null if no mismatch is detected.
  */
 export function detectConditionMismatch(
@@ -165,9 +184,6 @@ export function detectConditionMismatch(
     const qClasses = family.filter((c) => classMatches(c, q));
     const evClasses = family.filter((c) => classMatches(c, ev));
     if (qClasses.length === 0 || evClasses.length === 0) continue;
-    // The question is about some member(s); the evidence is about some member(s).
-    // If the evidence does NOT include any class the question is about, it is the WRONG
-    // member of the family -> dangerous subject mismatch.
     const overlap = qClasses.some((qc) => evClasses.some((ec) => ec.id === qc.id));
     if (!overlap) {
       return `question subject (${qClasses.map((c) => c.id).join("/")}) does not match the cited evidence subject (${evClasses
@@ -179,15 +195,12 @@ export function detectConditionMismatch(
 }
 
 // ---------------------------------------------------------------------------
-// (3) Staff-only / administrative / not-self-knowable criterion classes (DEMO_DATA rule 7)
+// (5) Staff-only classes — kept so a question can never carry a staff-only subject/evidence.
 // ---------------------------------------------------------------------------
-// These must never be asked as a yes/no question — they belong in staff_checks. A question
-// whose SUBJECT or whose cited EVIDENCE falls into one of these classes is rejected.
 interface StaffOnlyClass {
   id: string;
   markers: RegExp[];
 }
-
 const STAFF_ONLY_CLASSES: StaffOnlyClass[] = [
   {
     id: "care_management_enrollment",
@@ -206,14 +219,9 @@ const STAFF_ONLY_CLASSES: StaffOnlyClass[] = [
   { id: "opted_out_research", markers: [/opted\s+out\s+of\s+research/, /declined\s+research/] },
   {
     id: "lab_cutoff_from_record",
-    // Lab thresholds pulled from the medical record (not self-knowable precise values):
-    // HbA1c/A1c with a numeric comparator, eGFR, etc. These go to staff_checks per rule 7.
     markers: [
       /(hba1c|a1c)\s*[≥>=<]/,
       /(hba1c|a1c)\s*(level|value)?\s*(of\s*)?[≥>=<]/,
-      // Word-form thresholds tied to the lab name: "A1c ... 9% or higher", "at least 9%",
-      // "9 percent or more", "below 7", etc. A precise lab threshold from the record is not
-      // self-knowable, so a QUESTION asking it must go to staff_checks (DEMO_DATA rule 7).
       /(hba1c|a1c)\b[^.]*\b(≥|>=|≤|<=|greater than|less than|at least|at most|or higher|or more|or greater|or above|or lower|or less|or below)\b/,
       /(hba1c|a1c)\b[^.]*\b\d+(?:\.\d+)?\s*%?\s*(?:or\s+(?:higher|more|greater|above|lower|less|below))/,
       /\begfr\b\s*[≥>=<]/,
@@ -221,12 +229,7 @@ const STAFF_ONLY_CLASSES: StaffOnlyClass[] = [
   },
   { id: "investigator_judgment", markers: [/investigator'?s?\s+(judgment|discretion|opinion)/, /per\s+investigator/, /clinician\s+judgment/] },
 ];
-
-/**
- * Return the staff-only class id a piece of text falls into, or null. Used to reject a
- * QUESTION whose subject or cited evidence is staff-only, and (positively) to confirm such
- * an item was routed to staff_checks.
- */
+/** Return the staff-only class id a piece of text falls into, or null. */
 export function staffOnlyClassOf(text: string): string | null {
   const n = norm(text);
   for (const cls of STAFF_ONLY_CLASSES) {
@@ -234,13 +237,6 @@ export function staffOnlyClassOf(text: string): string | null {
   }
   return null;
 }
-// Classes that make a QUESTION staff-only purely because of its cited EVIDENCE, regardless
-// of how the question is phrased. These are inherently administrative/not-self-knowable at
-// the criterion level. `lab_cutoff_from_record` is DELIBERATELY excluded here: a lab value
-// (e.g. "...or an HbA1c level >=6.5%") can appear inside a broader, self-knowable diagnosis
-// criterion, so a lab mention in the EVIDENCE must not by itself condemn an otherwise valid
-// question (e.g. "Do you have type 2 diabetes?"). A question that ASKS the patient to
-// self-report a precise lab value is still caught via its TEXT.
 const EVIDENCE_STAFF_ONLY_IDS = new Set<string>([
   "care_management_enrollment",
   "deceased",
@@ -260,157 +256,149 @@ export function staffOnlyEvidenceClassOf(text: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// (4) Age-subject questions must be grounded in STRUCTURED bounds
+// THE BACKSTOP: verify SERVER-CONSTRUCTED questions against the mapping + registry.
 // ---------------------------------------------------------------------------
-// An age question is identified by its SUBJECT ("at least N years", "N years or older",
-// "N years of age or older", "younger than N"), NOT by whether its citation mentions "age".
-// Such a question MUST cite the structured minimumAge/maximumAge (so the structured-age
-// validator in lib/bedrock.ts runs) and its numeric subject must match the structured
-// value. A question that asks an age but cites unrelated free text (the observed bug, where
-// the age question cited the T2DM diagnosis paragraph) is REJECTED.
-
-// A question is an AGE question if its text expresses a numeric age threshold. We match a
-// numeric bound in any of these shapes (the number is captured):
-//   "at least N", "older than N", "younger than N", "over N", "under N", "aged N"
-//   "N or older", "N or younger", "N years or older", "N years of age or older"
-//   "N years old" (lower-bound phrasing)
-// The word "years" is OPTIONAL so "18 or older" is recognized.
-const AGE_SUBJECT_RES: RegExp[] = [
-  /\b(?:at\s+least|older\s+than|younger\s+than|over|under|aged)\s+(\d{1,3})\b/,
-  /\b(\d{1,3})\s*(?:years?|yrs?)?\s*(?:of\s+age\s*)?(?:or|and)\s+(?:older|younger|above|below|more|less|over|under|up)\b/,
-  /\b(\d{1,3})\s*(?:years?|yrs?)\s*(?:of\s+age)?\s*old\b/,
-];
-
-export interface AgeSubject {
-  /** The numeric age the question asks about. */
-  value: number;
-  /** Whether the phrasing is a lower bound ("at least N", "N or older") or an upper bound. */
-  bound: "min" | "max";
-}
-
-/**
- * Parse an age SUBJECT out of a question's text, or null if the question is not about age.
- * "at least 18", "18 years or older" -> {value:18, bound:"min"}; "younger than 65",
- * "65 years or younger" -> {value:65, bound:"max"}.
- */
-export function parseAgeSubject(questionText: string): AgeSubject | null {
-  const n = norm(questionText);
-  let raw: string | undefined;
-  for (const re of AGE_SUBJECT_RES) {
-    const m = re.exec(n);
-    if (m && m[1] !== undefined) {
-      raw = m[1];
-      break;
-    }
-  }
-  if (raw === undefined) return null;
-  const value = Number(raw);
-  if (!Number.isFinite(value)) return null;
-  // Decide bound direction from the wording. Upper-bound phrasings cap age from above.
-  const isUpper =
-    /younger\s+than|\bunder\b|or\s+younger|and\s+younger|or\s+below|or\s+less|\bup\s+to\b/.test(
-      n,
-    );
-  return { value, bound: isUpper ? "max" : "min" };
-}
-
-// ---------------------------------------------------------------------------
-// The public semantic validator
-// ---------------------------------------------------------------------------
-import { isStructuredAgeCriterion, parseStructuredAgeCitation } from "./bedrock-age";
-
-/**
- * Validate a model's semantics against the study's REAL criteria. Returns an error string
- * (fail closed) on the first violation, or null if every question is positively supported.
- *
- * Per-question checks:
- *  A. STAFF-ONLY: if the question's subject or its cited evidence is a staff-only class
- *     (CCM/care-management, deceased, consent, opted-out, lab cutoff from record,
- *     investigator judgment), REJECT — it must be a staff_check, not a question (rule 7).
- *  B. AGE GROUNDING: if the question's SUBJECT is an age ("at least N years" etc.), it MUST
- *     cite the structured age bounds and the structured field must exist with a value that
- *     matches the question's numeric subject. An age question citing unrelated free text is
- *     REJECTED (the observed bug).
- *  C. SUBJECT MATCH: the condition named in the question must be the condition named in the
- *     cited evidence (e.g. a type-2-diabetes question may not cite a type-1-diabetes
- *     criterion). REJECT a mismatch.
- *  D. POLARITY/KIND CONSISTENCY: for a NON-age, free-text-grounded question, the evidence's
- *     authoritative polarity (which section of the criteria it lives in) must match the
- *     declared `kind`, and `ruleOutIf` must be consistent with that polarity:
- *       - inclusion criterion ("must have X")  -> kind=inclusion, ruleOutIf="no"
- *         (you are ruled out by failing an inclusion, i.e. answering "no" to "do you have X")
- *       - exclusion criterion ("patients with Y") -> kind=exclusion, ruleOutIf="yes"
- *         (you are ruled out by meeting an exclusion, i.e. answering "yes" to "do you have Y")
- *     If evidence polarity is unknown (quote not cleanly in one section), REJECT.
- */
+// Because questions are built server-side, this never runs against model creativity. It is
+// a fail-closed assertion that the construction stayed faithful to the registry and the
+// supported mappings. If ANY question disagrees, we reject the whole model (safe error).
+//
+// Per question:
+//  - the question id must be a known mapping id;
+//  - FREE-TEXT: text must equal the mapping's own wording for this language; kind and
+//    ruleOutIf must equal the mapping's fixed values; evidence must be present in the
+//    declared section; subject must not mismatch; subject/evidence must not be staff-only;
+//    text must not be negated;
+//  - AGE: kind must be "inclusion" and ruleOutIf "no"; text age-subject must parse; the
+//    source must be a structured-age citation whose field matches the subject bound and
+//    whose value matches the study's actual structured bound; text must not be negated.
 export function checkQuestionSemantics(
   model: SimplifyModel,
   detail: TrialDetail,
+  lang: Lang,
 ): string | null {
   const { minAgeYears, maxAgeYears, criteriaText } = detail.eligibility;
+  if (!hasQuestionWording(lang)) {
+    return `language "${lang}" has no supported question wording`;
+  }
+  const wordingLang: WordingLang = lang;
+  const freeById = new Map(FREE_TEXT_MAPPINGS.map((m) => [m.id, m]));
+  const ageById = new Map(AGE_MAPPINGS.map((m) => [m.id, m]));
+
   for (const q of model.questions) {
-    const err = checkOneQuestion(q, criteriaText, minAgeYears, maxAgeYears);
+    const err = checkOneQuestion(q, {
+      criteriaText: criteriaText ?? "",
+      minAgeYears,
+      maxAgeYears,
+      wordingLang,
+      freeById,
+      ageById,
+    });
     if (err) return `question "${q.id}": ${err}`;
   }
   return null;
 }
 
-function checkOneQuestion(
-  q: SimplifyQuestion,
-  criteriaText: string,
-  minAgeYears: number | null,
-  maxAgeYears: number | null,
-): string | null {
-  // A. STAFF-ONLY — a question derived from a staff-only criterion must not be asked.
+interface CheckCtx {
+  criteriaText: string;
+  minAgeYears: number | null;
+  maxAgeYears: number | null;
+  wordingLang: WordingLang;
+  freeById: Map<string, (typeof FREE_TEXT_MAPPINGS)[number]>;
+  ageById: Map<string, (typeof AGE_MAPPINGS)[number]>;
+}
+
+function checkOneQuestion(q: SimplifyQuestion, ctx: CheckCtx): string | null {
+  // Negation guard applies to every question (server never emits one).
+  if (hasNegation(q.text)) {
+    return `question text is negated, which would flip its yes/no meaning relative to a fixed rule`;
+  }
+  // Staff-only subject/evidence can never be a question.
   const staffFromText = staffOnlyClassOf(q.text);
   const staffFromEvidence = staffOnlyEvidenceClassOf(q.source_criterion);
   if (staffFromText || staffFromEvidence) {
     return `is a staff-only/administrative criterion (${staffFromText ?? staffFromEvidence}) and must be in staff_checks, not asked as a question`;
   }
 
-  // B. AGE GROUNDING — an age-subject question must be grounded in structured bounds.
-  const ageSubject = parseAgeSubject(q.text);
-  if (ageSubject) {
-    if (!isStructuredAgeCriterion(q.source_criterion)) {
-      return `is an age question (asks about ${ageSubject.value} years) but its source_criterion does not cite the structured age bounds; it must be grounded in minimumAge/maximumAge`;
-    }
-    const parsed = parseStructuredAgeCitation(q.source_criterion);
-    if (!parsed) {
-      return `is an age question but its structured-age citation could not be parsed into a field/value`;
-    }
-    // The cited structured field must match the direction the question asks about.
-    if (parsed.field !== ageSubject.bound) {
-      return `asks a ${ageSubject.bound === "min" ? "minimum" : "maximum"}-age question but cites the ${parsed.field === "min" ? "minimumAge" : "maximumAge"} field`;
-    }
-    const actual = ageSubject.bound === "min" ? minAgeYears : maxAgeYears;
-    if (actual === null) {
-      return `asks a ${ageSubject.bound === "min" ? "minimum" : "maximum"}-age question but the study has no such structured bound`;
-    }
-    if (ageSubject.value !== actual) {
-      return `asks about ${ageSubject.value} years but the study's structured ${ageSubject.bound === "min" ? "minimumAge" : "maximumAge"} is ${actual}`;
-    }
-    // Age question is well-grounded; checkSourceCriteria validates the citation value too.
-    return null;
-  }
+  const ageMapping = ctx.ageById.get(q.id);
+  if (ageMapping) return checkAgeQuestion(q, ageMapping, ctx);
 
-  // C. SUBJECT MATCH — the condition in the question must be the condition in the evidence.
+  const freeMapping = ctx.freeById.get(q.id);
+  if (freeMapping) return checkFreeTextQuestion(q, freeMapping, ctx);
+
+  // Unknown id -> not produced by any supported mapping -> reject (fail closed).
+  return `id is not a supported mapping id (unknown/unsupported question)`;
+}
+
+function checkAgeQuestion(
+  q: SimplifyQuestion,
+  mapping: (typeof AGE_MAPPINGS)[number],
+  ctx: CheckCtx,
+): string | null {
+  // AGE POLARITY is FIXED: inclusion / ruleOutIf "no".
+  if (q.kind !== "inclusion") return `age question must have kind "inclusion" (got "${q.kind}")`;
+  if (q.ruleOutIf !== "no") return `age question must have ruleOutIf "no" (got "${q.ruleOutIf}")`;
+  const subject = parseAgeSubject(q.text);
+  if (!subject) return `age question text has no parseable age subject`;
+  if (subject.bound !== mapping.bound) {
+    return `age question text expresses a ${subject.bound} bound but the mapping is for the ${mapping.bound} bound`;
+  }
+  if (!isStructuredAgeCriterion(q.source_criterion)) {
+    return `age question source_criterion must cite the structured age bounds`;
+  }
+  const parsed = parseStructuredAgeCitation(q.source_criterion);
+  if (!parsed) return `age question structured-age citation could not be parsed`;
+  if (parsed.field !== mapping.bound) {
+    return `age question cites the ${parsed.field} bound but the mapping is for the ${mapping.bound} bound`;
+  }
+  const actual = mapping.bound === "min" ? ctx.minAgeYears : ctx.maxAgeYears;
+  if (actual === null) return `age question cites a ${mapping.bound} bound the study does not have`;
+  if (subject.value !== actual || parsed.value !== actual) {
+    return `age question value (${subject.value}) / citation (${parsed.value}) does not match the study's ${mapping.bound} bound (${actual})`;
+  }
+  return null;
+}
+
+function checkFreeTextQuestion(
+  q: SimplifyQuestion,
+  mapping: (typeof FREE_TEXT_MAPPINGS)[number],
+  ctx: CheckCtx,
+): string | null {
+  // TEXT must be the mapping's own deterministic wording for this language.
+  const expectedText = mapping.wording[ctx.wordingLang];
+  if (q.text !== expectedText) {
+    return `text does not match the server mapping wording for this language`;
+  }
+  // KIND + RULEOUTIF are FIXED by the mapping.
+  if (q.kind !== mapping.section) {
+    return `kind "${q.kind}" does not match the mapping section "${mapping.section}"`;
+  }
+  if (q.ruleOutIf !== mapping.ruleOutIf) {
+    return `ruleOutIf "${q.ruleOutIf}" does not match the mapping's fixed value "${mapping.ruleOutIf}"`;
+  }
+  // SUBJECT cross-check (diabetes family) — must not be a mismatch.
   const mismatch = detectConditionMismatch(q.text, q.source_criterion);
   if (mismatch) return mismatch;
-
-  // D. POLARITY / KIND CONSISTENCY against the evidence's actual section.
-  const polarity = evidencePolarity(q.source_criterion, criteriaText);
-  if (polarity === "unknown") {
-    return `cited source_criterion could not be located in either the inclusion or exclusion section, so its polarity cannot be confirmed`;
+  // EVIDENCE must live in the declared section and match the mapping's required fact.
+  const { inclusion, exclusion } = splitSections(ctx.criteriaText);
+  const section = mapping.section === "inclusion" ? inclusion : exclusion;
+  if (section === null) {
+    return `the ${mapping.section} section is missing or ambiguous, so the evidence polarity cannot be confirmed`;
   }
-  if (polarity !== q.kind) {
-    return `is declared kind="${q.kind}" but its cited evidence is in the ${polarity} section`;
+  if (!section.includes(norm(q.source_criterion))) {
+    return `source_criterion is not present in the ${mapping.section} section`;
   }
-  // ruleOutIf must follow from the polarity:
-  //   inclusion -> ruleOutIf "no"  (failing an inclusion rules you out)
-  //   exclusion -> ruleOutIf "yes" (meeting an exclusion rules you out)
-  const expectedRuleOut = polarity === "inclusion" ? "no" : "yes";
+  if (!section.includes(norm(mapping.evidenceMatch))) {
+    return `the mapping's required fact is not present in the ${mapping.section} section`;
+  }
+  // Evidence polarity must agree with the declared kind.
+  const polarity = evidencePolarity(q.source_criterion, ctx.criteriaText);
+  if (polarity !== mapping.section) {
+    return `cited evidence resolves to the ${polarity} section but the mapping is ${mapping.section}`;
+  }
+  // ruleOutIf must follow from polarity: inclusion -> "no", exclusion -> "yes".
+  const expectedRuleOut = mapping.section === "inclusion" ? "no" : "yes";
   if (q.ruleOutIf !== expectedRuleOut) {
-    return `cites an ${polarity} criterion so ruleOutIf should be "${expectedRuleOut}", but it is "${q.ruleOutIf}"`;
+    return `cites an ${mapping.section} criterion so ruleOutIf should be "${expectedRuleOut}"`;
   }
   return null;
 }
