@@ -14,7 +14,8 @@ These rules are **non-negotiable** and override all other guidance. TrialPath he
   - **Spanish**: "usted califica", "usted es elegible", "cumple los requisitos".
   - **Portuguese**: "você se qualifica", "você é elegível", "atende aos critérios".
   - **Haitian Creole**: "ou kalifye", "ou elijib".
-  - (Add Chinese / Vietnamese equivalents if those languages stay in scope — see `product.md` language decision.)
+  - **Chinese (Simplified)**: "您符合条件", "您符合资格", "您合格".
+  - (Add Vietnamese equivalents before it ships as a stretch language.)
 - If translation adds a language, its forbidden-phrase equivalents must be added **before** that language ships.
 
 ## 2. Plain language, 8th-grade reading level

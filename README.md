@@ -11,7 +11,7 @@
 - Plain-language trial card (~8th-grade reading level)
 - "Might this fit me?" quick-check: structured age/sex/healthy-volunteer checks + simple yes/no questions from the eligibility text
 - Getting there: nearest MBTA stops, wheelchair accessibility, transit directions link
-- Multilingual: English, Spanish, Portuguese, Haitian Creole (Vietnamese + labeled Chinese as stretch)
+- Multilingual: English, Spanish, Portuguese, Haitian Creole, Simplified Chinese (Vietnamese stretch)
 - Contact the study team + printable summary for your doctor
 
 ## Data

@@ -31,17 +31,17 @@ KIRO_LOG.md                # running log of what Kiro did (feeds the write-up)
 - Route handlers do I/O (fetch external APIs, call Bedrock) and delegate all parsing/ranking/decision logic to `lib/`.
 
 ## Units — decide once, convert at the edges
-Mixed units are a known bug source (UI is **miles**, MBTA radius is **degrees**, geo math is easiest in **km**).
-- `lib/` works in **ONE canonical unit: kilometers**. All distance math returns km.
-- Convert at the boundaries only: `milesToKm` / `kmToMiles` for the UI (5/10/25 mi), and a single `kmToMbtaDegrees` helper (~0.7 mi ≈ 0.01°) for the MBTA radius.
-- A property test must cover the round-trips: `kmToMiles(milesToKm(x)) ≈ x` and `kmToMbtaDegrees` monotonic & non-negative.
+Mixed units are a known bug source (UI uses 5/10/25 **mi**, MBTA radius is in **degrees**). **Decision: `lib/` is canonical MILES.** All distance math returns miles.
+- `haversine(a, b)` returns **miles**. `rankBySiteDistance` sorts by miles. Walking distances display in miles.
+- Convert only at the one boundary that needs it: `milesToMbtaDegrees` (~0.7 mi ≈ 0.01°) when building the MBTA `filter[radius]`.
+- A property test must cover: `milesToMbtaDegrees` monotonic & non-negative; haversine in miles symmetric/non-negative/zero for identical points.
 
 ## Pure functions to build (all tested)
 - `parseAge("18 Years")` → age **in years** (or null); never throws. Must handle `"6 Months"` (→ 0.5), `"N/A"`, `"No maximum"`, empty, and junk strings.
 - `quickCheck(profile, eligibility)` → one of `"possible-fit" | "may-rule-out" | "not-sure"`. (The type already excludes "eligible" — so test real behavior, not the type; see below.)
-- `haversine(a, b)` → **kilometers**; symmetric and non-negative.
-- `milesToKm` / `kmToMiles` / `kmToMbtaDegrees` → unit conversions, used only at boundaries.
-- `rankBySiteDistance(trials, origin)` → trials sorted nearest-first (km).
+- `haversine(a, b)` → **miles**; symmetric and non-negative.
+- `milesToMbtaDegrees(mi)` → degrees for the MBTA radius; used only at the API boundary.
+- `rankBySiteDistance(trials, origin)` → trials sorted nearest-first (miles).
 - `readingGrade(text)` → estimated grade level (used by the reading-level hook).
 
 ## Property-based tests (fast-check) — make them earn their keep
@@ -50,8 +50,8 @@ Don't test what the type system already guarantees. Test behavior:
 - **`quickCheck` monotonicity**: adding a *disqualifying* answer never **improves** the outcome (possible-fit → may-rule-out/not-sure, never the reverse).
 - **`quickCheck` out-of-range age** → always `"may-rule-out"`.
 - **`quickCheck` empty/malformed eligibility text** → never `"possible-fit"` (fall back to `"not-sure"`).
-- **`haversine`**: symmetric (`h(a,b)==h(b,a)`), non-negative, zero for identical points.
-- **unit conversions**: round-trip within tolerance; `kmToMbtaDegrees` monotonic & non-negative.
+- **`haversine`** (miles): symmetric (`h(a,b)==h(b,a)`), non-negative, zero for identical points.
+- **`milesToMbtaDegrees`**: monotonic & non-negative.
 - **translation invariants** (string-level): output preserves every NCT id, phone, and email from the input verbatim.
 
 ## Testing conventions
@@ -71,7 +71,9 @@ Accessibility is core to the product thesis (reaching people without cars, non-E
 Kiro must produce explicit UI for:
 - **No trials found** — plain-language "no recruiting trials near you; try a wider distance or a different term," with a widen-radius action.
 - **No transit nearby** — "no T stops found within walking distance" instead of an empty list; still show the Google Maps directions link.
-- **API rate-limit / fetch failure** — friendly retry message; fall back to cached/pre-warmed data for demo trials where available.
+- **API rate-limit / timeout / fetch failure** — friendly retry message; fall back to cached/pre-warmed data for demo trials where available.
+- **LLM failure** — fall back to the **structured quick-check only** (age/sex/healthy-volunteer checks); skip the generated questions and show the plain fallback copy. Never block the whole trial view on the LLM.
+- **No transit stop nearby** — say "no nearby transit" and still show a **driving** directions link (not just transit).
 - **Loading** — skeletons/spinners with accessible `aria-busy`.
 - All empty/error copy obeys `safety.md` (≤ 8th grade, no forbidden phrases).
 
