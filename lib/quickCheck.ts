@@ -17,11 +17,15 @@ export interface FitReason {
     | "sex"
     | "healthy-volunteer"
     | "answer"
-    // The study gave no usable criteria text and no questions: an absence of information,
-    // which must never read as a possible fit (.kiro/specs/fit-check Requirement 7).
-    | "insufficient-info";
+    // No questions to ask, so the free-text rules were never checked. These two come from the
+    // study's data, not the person's answers, and must never read as a possible fit:
+    | "insufficient-info" // the study gave no usable criteria text
+    | "unchecked-criteria"; // the study has rules, but no questions were made from them
   questionId?: string;
 }
+
+// The reasons that describe missing study information rather than an answer.
+export const INFO_REASONS: readonly FitReason["kind"][] = ["insufficient-info", "unchecked-criteria"];
 
 // Criteria text counts as real content when it has at least one letter or digit in any script.
 // Empty, whitespace-only and symbols-only text (and a missing value) have none.
@@ -67,11 +71,15 @@ export function quickCheck(
     if (answers[q.id] === q.ruleOutIf) reasons.push({ kind: "answer", questionId: q.id });
   }
 
-  // Narrow on purpose: fires only when there are no questions AND the text has no letter or
-  // digit. When the model fails (no questions) the trial's own criteria text is still present,
-  // so the structured-checks-only fallback in tech.md keeps its normal result.
-  if (questions.length === 0 && !hasCriteriaContent(eligibility.criteriaText)) {
-    reasons.push({ kind: "insufficient-info" });
+  // Cautious fallback (docs/TASKS.md, fit-check Requirement 7): with no generated questions,
+  // age, sex and condition alone never produce "possible fit". The structured checks still
+  // run and still report their own reasons. Which info reason depends on the criteria text:
+  // none (empty, whitespace or symbols only) vs rules that were not turned into questions
+  // (the model failed, timed out or returned none).
+  if (questions.length === 0) {
+    reasons.push({
+      kind: hasCriteriaContent(eligibility.criteriaText) ? "unchecked-criteria" : "insufficient-info",
+    });
   }
 
   return { outcome: reasons.length ? "ask-team" : "possible-fit", reasons };

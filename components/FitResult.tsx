@@ -1,26 +1,29 @@
 import type { ReactNode } from "react";
 import type { MessageKey, Translate } from "@/lib/i18n";
-import type { Answer, FitReason, FitResult as FitResultData } from "@/lib/quickCheck";
+// Relative (like StudyResults.tsx) so the one runtime import also resolves under Vitest,
+// which has no "@/" alias; the other imports here are type-only.
+import { INFO_REASONS, type Answer, type FitReason, type FitResult as FitResultData } from "../lib/quickCheck";
 import type { Eligibility, FitQuestion, Lang } from "@/lib/types";
 
 const ANSWER_KEYS = { yes: "fit.yes", no: "fit.no", unsure: "fit.unsure" } as const;
 
-// "ask-team" whose only reason is missing study info: the person's answers didn't rule
-// anything out, so "Some answers may rule you out" would be wrong. safety.md §1 allows
-// "Not sure ... the study team can tell you" for this.
-function onlyMissingInfo(result: FitResultData): boolean {
-  return (
-    result.outcome === "ask-team" &&
-    result.reasons.length > 0 &&
-    result.reasons.every((reason) => reason.kind === "insufficient-info")
-  );
+// The single info reason when it is the only one (missing study info, no questions asked).
+// Then nothing the person answered ruled anything out, so "Some answers may rule you out"
+// would be wrong; safety.md §1 allows "Not sure ... the study team can tell you" instead.
+function onlyInfoReason(result: FitResultData): FitReason | undefined {
+  const [first, ...rest] = result.reasons;
+  return result.outcome === "ask-team" && first && rest.length === 0 && INFO_REASONS.includes(first.kind)
+    ? first
+    : undefined;
 }
 
 // Title and body for a result, shared with QuickCheck's live-region announcement so the
 // screen-reader text always matches what is on screen.
 export function fitHeadingKeys(result: FitResultData): { title: MessageKey; body: MessageKey } {
   if (result.outcome === "possible-fit") return { title: "fit.possibleTitle", body: "fit.possibleBody" };
-  if (onlyMissingInfo(result)) return { title: "fit.unsureTitle", body: "fit.reason.insufficient-info" };
+  const info = onlyInfoReason(result);
+  if (info?.kind === "insufficient-info") return { title: "fit.unsureTitle", body: "fit.reason.insufficient-info" };
+  if (info?.kind === "unchecked-criteria") return { title: "fit.unsureTitle", body: "fit.reason.unchecked-criteria" };
   return { title: "fit.askTitle", body: "fit.askBody" };
 }
 
@@ -52,7 +55,7 @@ export function FitResult({ result, ...ctx }: { result: FitResultData } & Reason
       <h3 className="text-lg font-semibold">{t(title)}</h3>
       <p className="mt-1">{t(body)}</p>
       {/* With only missing study info, the body already is that reason; don't repeat it. */}
-      {result.reasons.length > 0 && !onlyMissingInfo(result) && (
+      {result.reasons.length > 0 && !onlyInfoReason(result) && (
         <ul className="mt-3 list-disc space-y-1 pl-5">
           {result.reasons.map((reason, i) => (
             <li key={`${reason.kind}-${reason.questionId ?? i}`}>{reasonText(reason, ctx)}</li>
@@ -78,6 +81,8 @@ function reasonText(reason: FitReason, ctx: ReasonContext): ReactNode {
       return t("fit.reason.healthy-volunteer");
     case "insufficient-info":
       return t("fit.reason.insufficient-info");
+    case "unchecked-criteria":
+      return t("fit.reason.unchecked-criteria");
     case "answer": {
       const q = questions.find((question) => question.id === reason.questionId);
       if (!q) return null;

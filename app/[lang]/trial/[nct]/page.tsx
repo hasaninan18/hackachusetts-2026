@@ -136,9 +136,10 @@ async function Trial({ params, searchParams }: Props) {
   // Trial facts come from ClinicalTrials.gov in English; mark them so screen readers switch voice.
   const enLang = lang !== "en" ? "en" : undefined;
   const site = trial.nearestSite;
-  // The quick check needs the real criteria text: with no questions (e.g. the model failed),
-  // text with content keeps the structured-checks-only result, and only a study with no usable
-  // text gets "insufficient-info". Blanking it here made every trial look criteria-less.
+  // The quick check needs the real criteria text. With no questions (the model failed or made
+  // none) it never says "possible fit", and the text decides which reason it gives: the study
+  // listed no rules, or it has rules we could not ask about. Blanking it here made every
+  // trial look like it listed no rules.
   const { minAgeYears, maxAgeYears, sex, healthyVolunteers, criteriaText } = trial.eligibility;
   const eligibility: Eligibility = {
     minAgeYears,

@@ -1,10 +1,9 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { quickCheck, type Answer, type Profile } from "./quickCheck";
+import { INFO_REASONS, quickCheck, type Answer, type Profile } from "./quickCheck";
 import type { Eligibility, FitQuestion } from "./types";
 
-// Real criteria text (NCT05799222, abridged). With no text and no questions the check now
-// reports insufficient-info, so the structured-check examples below need a study that has text.
+// Real criteria text (NCT05799222, abridged).
 const CRITERIA = "Inclusion Criteria:\n\n* Age 18-65\n* Body mass index (BMI) greater than or equal to 27 kg/m^2";
 
 const mgh: Eligibility = {
@@ -20,6 +19,14 @@ const questions: FitQuestion[] = [
   { id: "q2", text: "Other blood sugar medicine?", ruleOutIf: "yes" },
 ];
 
+// The structured checks (age, sex, healthy volunteer) are shown on their own here, so each
+// example asks one question answered "not sure", which never rules anyone out. With no
+// questions at all, the check adds an info reason instead (see the last describe block).
+const ONE: FitQuestion[] = [{ id: "q0", text: "Any other rule?", ruleOutIf: "yes" }];
+const UNSURE: Record<string, Answer> = { q0: "unsure" };
+const structured = (p: Profile, e: Eligibility) => quickCheck(p, e, ONE, UNSURE);
+const unsureFor = (qs: FitQuestion[]) => Object.fromEntries(qs.map((q) => [q.id, "unsure" as Answer]));
+
 describe("quickCheck examples", () => {
   it("Maria (52, has diabetes, no other medicine) is a possible fit", () => {
     const r = quickCheck({ age: 52, healthy: false }, mgh, questions, { q1: "yes", q2: "no" });
@@ -27,24 +34,22 @@ describe("quickCheck examples", () => {
   });
 
   it("age boundaries are inclusive", () => {
-    expect(quickCheck({ age: 18 }, mgh, [], {}).outcome).toBe("possible-fit");
-    expect(quickCheck({ age: 65 }, mgh, [], {}).outcome).toBe("possible-fit");
-    expect(quickCheck({ age: 17 }, mgh, [], {}).reasons).toEqual([{ kind: "age-too-young" }]);
-    expect(quickCheck({ age: 66 }, mgh, [], {}).reasons).toEqual([{ kind: "age-too-old" }]);
+    expect(structured({ age: 18 }, mgh).outcome).toBe("possible-fit");
+    expect(structured({ age: 65 }, mgh).outcome).toBe("possible-fit");
+    expect(structured({ age: 17 }, mgh).reasons).toEqual([{ kind: "age-too-young" }]);
+    expect(structured({ age: 66 }, mgh).reasons).toEqual([{ kind: "age-too-old" }]);
   });
 
   it("a healthy volunteer is flagged only when the study doesn't accept them", () => {
-    expect(quickCheck({ healthy: true }, mgh, [], {}).reasons).toEqual([{ kind: "healthy-volunteer" }]);
-    expect(quickCheck({ healthy: true }, { ...mgh, healthyVolunteers: true }, [], {}).outcome).toBe(
-      "possible-fit",
-    );
+    expect(structured({ healthy: true }, mgh).reasons).toEqual([{ kind: "healthy-volunteer" }]);
+    expect(structured({ healthy: true }, { ...mgh, healthyVolunteers: true }).outcome).toBe("possible-fit");
   });
 
   it("sex mismatch is flagged only for single-sex studies", () => {
     const womenOnly = { ...mgh, sex: "FEMALE" as const };
-    expect(quickCheck({ sex: "MALE" }, womenOnly, [], {}).reasons).toEqual([{ kind: "sex" }]);
-    expect(quickCheck({ sex: "FEMALE" }, womenOnly, [], {}).outcome).toBe("possible-fit");
-    expect(quickCheck({ sex: "MALE" }, mgh, [], {}).outcome).toBe("possible-fit");
+    expect(structured({ sex: "MALE" }, womenOnly).reasons).toEqual([{ kind: "sex" }]);
+    expect(structured({ sex: "FEMALE" }, womenOnly).outcome).toBe("possible-fit");
+    expect(structured({ sex: "MALE" }, mgh).outcome).toBe("possible-fit");
   });
 
   it("an answer matching ruleOutIf is reported with its question id", () => {
@@ -81,14 +86,13 @@ const profileArb: fc.Arbitrary<Profile> = fc.record(
   { requiredKeys: [] },
 );
 
-const questionsArb = fc.uniqueArray(
-  fc.record({
-    id: fc.string({ minLength: 1, maxLength: 4 }),
-    text: fc.string(),
-    ruleOutIf: fc.constantFrom("yes", "no" as const),
-  }),
-  { maxLength: 6, selector: (q) => q.id },
-);
+const questionArb = fc.record({
+  id: fc.string({ minLength: 1, maxLength: 4 }),
+  text: fc.string(),
+  ruleOutIf: fc.constantFrom("yes", "no" as const),
+});
+const questionsArb = fc.uniqueArray(questionArb, { maxLength: 6, selector: (q) => q.id });
+const someQuestionsArb = fc.uniqueArray(questionArb, { minLength: 1, maxLength: 6, selector: (q) => q.id });
 
 describe("quickCheck properties", () => {
   it("only ever returns the two allowed outcomes, and ask-team iff there are reasons", () => {
@@ -104,9 +108,8 @@ describe("quickCheck properties", () => {
 
   it("'not sure' answers and an empty profile never rule anyone out", () => {
     fc.assert(
-      fc.property(eligibilityArb, questionsArb, (e, qs) => {
-        const unsure = Object.fromEntries(qs.map((q) => [q.id, "unsure" as Answer]));
-        expect(quickCheck({}, e, qs, unsure).outcome).toBe("possible-fit");
+      fc.property(eligibilityArb, someQuestionsArb, (e, qs) => {
+        expect(quickCheck({}, e, qs, unsureFor(qs)).outcome).toBe("possible-fit");
       }),
     );
   });
@@ -131,8 +134,9 @@ describe("quickCheck properties", () => {
   });
 });
 
-// .kiro/specs/fit-check Requirement 7 (design "Proposed change for the owner", Change 5).
-describe("insufficient-info (empty criteria, no questions) -> ask-team", () => {
+// .kiro/specs/fit-check Requirement 7, widened by docs/TASKS.md (14:18): with no generated
+// questions, age, sex and condition alone must not give the positive "possible fit".
+describe("no generated questions -> never possible-fit (cautious fallback)", () => {
   const empty: Eligibility = {
     minAgeYears: null,
     maxAgeYears: null,
@@ -141,22 +145,15 @@ describe("insufficient-info (empty criteria, no questions) -> ask-team", () => {
     criteriaText: "",
   };
 
-  it("empty criteria with no questions is ask-team, not possible-fit", () => {
+  it("empty criteria with no questions is ask-team with insufficient-info", () => {
     const r = quickCheck({}, empty, [], {});
-    expect(r.outcome).toBe("ask-team");
-    expect(r.reasons).toEqual([{ kind: "insufficient-info" }]);
+    expect(r).toEqual({ outcome: "ask-team", reasons: [{ kind: "insufficient-info" }] });
   });
 
-  it("whitespace-only criteria with no questions is ask-team", () => {
-    const r = quickCheck({}, { ...empty, criteriaText: "   \n\t " }, [], {});
-    expect(r.outcome).toBe("ask-team");
-    expect(r.reasons.some((x) => x.kind === "insufficient-info")).toBe(true);
-  });
-
-  it("symbols/punctuation-only criteria with no questions is ask-team", () => {
-    const r = quickCheck({}, { ...empty, criteriaText: "--- / . , ; ***" }, [], {});
-    expect(r.outcome).toBe("ask-team");
-    expect(r.reasons.some((x) => x.kind === "insufficient-info")).toBe(true);
+  it("whitespace-only and symbols-only criteria count as empty", () => {
+    for (const criteriaText of ["   \n\t ", "--- / . , ; ***"]) {
+      expect(quickCheck({}, { ...empty, criteriaText }, [], {}).reasons).toEqual([{ kind: "insufficient-info" }]);
+    }
   });
 
   it("a missing criteriaText (malformed response) is treated as empty, never a crash", () => {
@@ -164,32 +161,34 @@ describe("insufficient-info (empty criteria, no questions) -> ask-team", () => {
     expect(quickCheck({}, malformed, [], {}).reasons).toEqual([{ kind: "insufficient-info" }]);
   });
 
-  it("does NOT fire when there is at least one question (case A stays possible-fit)", () => {
-    const qs: FitQuestion[] = [{ id: "q1", text: "…", ruleOutIf: "no" }];
-    const r = quickCheck({}, empty, qs, { q1: "yes" });
-    expect(r.outcome).toBe("possible-fit");
-    expect(r.reasons).toEqual([]);
+  it("criteria text but no questions (model failed or made none) is ask-team, not a fit from age alone", () => {
+    const r = quickCheck({ age: 52, healthy: false }, mgh, [], {});
+    expect(r).toEqual({ outcome: "ask-team", reasons: [{ kind: "unchecked-criteria" }] });
   });
 
-  it("does NOT fire when criteria text has letters/digits even if no questions were generated", () => {
-    // Also the tech.md LLM-failure fallback: structured checks only, criteria text still present.
-    const r = quickCheck({}, { ...empty, criteriaText: "Must be 18 or older." }, [], {});
-    expect(r.reasons.some((x) => x.kind === "insufficient-info")).toBe(false);
-    expect(r.outcome).toBe("possible-fit");
-  });
-
-  it("counts letters and digits in any script as content", () => {
-    for (const text of ["年龄18岁以上", "Tuổi từ 18", "٣", "x"]) {
-      expect(quickCheck({}, { ...empty, criteriaText: text }, [], {}).outcome).toBe("possible-fit");
+  it("counts letters and digits in any script as criteria content", () => {
+    for (const criteriaText of ["年龄18岁以上", "Tuổi từ 18", "٣", "x"]) {
+      expect(quickCheck({}, { ...empty, criteriaText }, [], {}).reasons).toEqual([{ kind: "unchecked-criteria" }]);
     }
   });
 
-  it("keeps structured reasons alongside it", () => {
-    const r = quickCheck({ age: 10 }, { ...empty, minAgeYears: 18 }, [], {});
-    expect(r.reasons).toEqual([{ kind: "age-too-young" }, { kind: "insufficient-info" }]);
+  it("with questions there is no info reason, so answering everything stays possible-fit", () => {
+    const qs: FitQuestion[] = [{ id: "q1", text: "…", ruleOutIf: "no" }];
+    expect(quickCheck({}, empty, qs, { q1: "yes" })).toEqual({ outcome: "possible-fit", reasons: [] });
   });
 
-  it("fires exactly when there are no questions and the text has no letter or digit", () => {
+  it("keeps structured reasons alongside the info reason", () => {
+    expect(quickCheck({ age: 10 }, { ...empty, minAgeYears: 18 }, [], {}).reasons).toEqual([
+      { kind: "age-too-young" },
+      { kind: "insufficient-info" },
+    ]);
+    expect(quickCheck({ age: 10 }, mgh, [], {}).reasons).toEqual([
+      { kind: "age-too-young" },
+      { kind: "unchecked-criteria" },
+    ]);
+  });
+
+  it("exactly one info reason iff there are no questions, picked by whether the text has a letter or digit", () => {
     const textArb = fc.oneof(
       fc.constant(""),
       fc.constantFrom(" ", "\n\t", "--- / . , ;", "***", "•"),
@@ -198,11 +197,15 @@ describe("insufficient-info (empty criteria, no questions) -> ask-team", () => {
     );
     fc.assert(
       fc.property(profileArb, eligibilityArb, textArb, questionsArb, (p, e, criteriaText, qs) => {
-        const answers = Object.fromEntries(qs.map((q) => [q.id, "unsure" as Answer]));
-        const r = quickCheck(p, { ...e, criteriaText }, qs, answers);
-        const expected = qs.length === 0 && !/[\p{L}\p{N}]/u.test(criteriaText);
-        expect(r.reasons.some((x) => x.kind === "insufficient-info")).toBe(expected);
-        if (expected) expect(r.outcome).toBe("ask-team");
+        const r = quickCheck(p, { ...e, criteriaText }, qs, unsureFor(qs));
+        const info = r.reasons.filter((x) => INFO_REASONS.includes(x.kind));
+        if (qs.length > 0) {
+          expect(info).toEqual([]);
+        } else {
+          const kind = /[\p{L}\p{N}]/u.test(criteriaText) ? "unchecked-criteria" : "insufficient-info";
+          expect(info).toEqual([{ kind }]);
+          expect(r.outcome).toBe("ask-team");
+        }
       }),
     );
   });
