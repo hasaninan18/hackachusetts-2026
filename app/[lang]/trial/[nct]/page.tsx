@@ -132,14 +132,16 @@ async function Trial({ params, searchParams }: Props) {
   // Trial facts come from ClinicalTrials.gov in English; mark them so screen readers switch voice.
   const enLang = lang !== "en" ? "en" : undefined;
   const site = trial.nearestSite;
-  // Only the structured fields the quick check uses go to the browser, not the full criteria text.
-  const { minAgeYears, maxAgeYears, sex, healthyVolunteers } = trial.eligibility;
+  // The quick check needs the real criteria text: with no questions (e.g. the model failed),
+  // text with content keeps the structured-checks-only result, and only a study with no usable
+  // text gets "insufficient-info". Blanking it here made every trial look criteria-less.
+  const { minAgeYears, maxAgeYears, sex, healthyVolunteers, criteriaText } = trial.eligibility;
   const eligibility: Eligibility = {
     minAgeYears,
     maxAgeYears,
     sex,
     healthyVolunteers,
-    criteriaText: "",
+    criteriaText,
   };
 
   return (

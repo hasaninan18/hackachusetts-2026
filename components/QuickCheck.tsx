@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { HTML_LANG, type MessageKey, type Translate } from "@/lib/i18n";
 import { quickCheck, type Answer, type Profile } from "@/lib/quickCheck";
 import type { Eligibility, FitQuestion, Lang } from "@/lib/types";
-import { FitResult } from "./FitResult";
+import { FitResult, fitHeadingKeys } from "./FitResult";
 import type { SimplifyState } from "./TrialPlain";
 
 type SexChoice = "FEMALE" | "MALE" | "skip";
@@ -107,18 +107,15 @@ export function QuickCheck({
   const done = groups.filter(Boolean).length;
   const showResult = status !== "loading" && (total > 0 ? done === total : age !== undefined);
 
-  // One always-present status element, updated only when the outcome or the number of reasons
-  // changes (state adjusted during render, not in an effect). The trailing no-break space
+  // One always-present status element, updated only when the shown title or the number of
+  // reasons changes (state adjusted during render, not in an effect). The trailing no-break space
   // alternates so a change in reasons alone, with the same words, is still a DOM change that
   // screen readers announce.
-  const announceKey = showResult ? `${result.outcome}:${result.reasons.length}` : "";
+  const heading = fitHeadingKeys(result);
+  const announceKey = showResult ? `${heading.title}:${result.reasons.length}` : "";
   const [announced, setAnnounced] = useState({ key: "", text: "", flip: false });
   if (announced.key !== announceKey) {
-    const text = !showResult
-      ? ""
-      : result.outcome === "possible-fit"
-        ? `${t("fit.possibleTitle")} ${t("fit.possibleBody")}`
-        : `${t("fit.askTitle")} ${t("fit.askBody")}`;
+    const text = showResult ? `${t(heading.title)} ${t(heading.body)}` : "";
     setAnnounced({ key: announceKey, text, flip: !announced.flip });
   }
 

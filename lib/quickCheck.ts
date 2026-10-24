@@ -11,8 +11,22 @@ export interface Profile {
 export type FitOutcome = "possible-fit" | "ask-team";
 
 export interface FitReason {
-  kind: "age-too-young" | "age-too-old" | "sex" | "healthy-volunteer" | "answer";
+  kind:
+    | "age-too-young"
+    | "age-too-old"
+    | "sex"
+    | "healthy-volunteer"
+    | "answer"
+    // The study gave no usable criteria text and no questions: an absence of information,
+    // which must never read as a possible fit (.kiro/specs/fit-check Requirement 7).
+    | "insufficient-info";
   questionId?: string;
+}
+
+// Criteria text counts as real content when it has at least one letter or digit in any script.
+// Empty, whitespace-only and symbols-only text (and a missing value) have none.
+export function hasCriteriaContent(criteriaText: unknown): boolean {
+  return typeof criteriaText === "string" && /[\p{L}\p{N}]/u.test(criteriaText);
 }
 
 export interface FitResult {
@@ -51,6 +65,13 @@ export function quickCheck(
 
   for (const q of questions) {
     if (answers[q.id] === q.ruleOutIf) reasons.push({ kind: "answer", questionId: q.id });
+  }
+
+  // Narrow on purpose: fires only when there are no questions AND the text has no letter or
+  // digit. When the model fails (no questions) the trial's own criteria text is still present,
+  // so the structured-checks-only fallback in tech.md keeps its normal result.
+  if (questions.length === 0 && !hasCriteriaContent(eligibility.criteriaText)) {
+    reasons.push({ kind: "insufficient-info" });
   }
 
   return { outcome: reasons.length ? "ask-team" : "possible-fit", reasons };
