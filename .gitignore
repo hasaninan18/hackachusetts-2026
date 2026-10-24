@@ -1,0 +1,12 @@
+# NOTE: never ignore .kiro/ — it is required for Hackachusetts judging
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+.DS_Store
+dist/
+build/
+.next/
