@@ -41,6 +41,7 @@ Out of scope: accounts, storing health info (nothing leaves the browser except t
   - `POST /api/simplify` → LLM: plain summary + questions + translation, **cached per (NCT id, language)** so the demo is fast and cheap.
 - Pure functions in `lib/` (easy to property-test): `parseAge("18 Years")`, `quickCheck(profile, eligibility)`, `haversine`, `rankBySite distance`, `readingGrade(text)`.
 - Pre-warm the cache for the 5–10 trials used in the demo video.
+- Frontend detail (screens, components, API contract): [FRONTEND_PLAN.md](FRONTEND_PLAN.md).
 
 ## 5. Kiro strategy (this is 1/3 of the score — Akash owns it, everyone uses it)
 Do these **in Kiro**, and commit each so the repo history shows it. Keep a running `KIRO_LOG.md` of what each feature did for you (feeds the write-up).

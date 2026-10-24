@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+/* Design tokens: docs/FRONTEND_PLAN.md §6b. Contrast ratios measured against --paper. */
+:root {
+  --ink: #1b2433; /* 14.7:1 */
+  --muted: #4a5568; /* 7.1:1 */
+  --paper: #faf8f4;
+  --card: #ffffff;
+  --line: #e2ded6;
+  --primary: #0b6e69; /* 5.74:1; white on primary 6.09:1 */
+  --primary-hover: #095a56;
+  --fit: #1e6b3a;
+  --fit-bg: #e7f4ec; /* fit on fit-bg 5.76:1 */
+  --ask: #8a4b00;
+  --ask-bg: #fdf1e1; /* ask on ask-bg 6.10:1 */
+  --focus: #1a56db;
+}
+
+@theme inline {
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-paper: var(--paper);
+  --color-card: var(--card);
+  --color-line: var(--line);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-fit: var(--fit);
+  --color-fit-bg: var(--fit-bg);
+  --color-ask: var(--ask);
+  --color-ask-bg: var(--ask-bg);
+  --color-focus: var(--focus);
+  --font-sans: var(--font-noto), var(--font-noto-sc), system-ui, sans-serif;
+}
+
+html {
+  font-size: 106.25%; /* 17px body */
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  line-height: 1.6;
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #ece8e0 25%, #f5f2ec 50%, #ece8e0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: 4px;
+}
+
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+
+@media print {
+  body {
+    background: #fff;
+    font-size: 12pt;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+}
+
+.print-only {
+  display: none;
+}
