@@ -16,6 +16,7 @@ import {
   generateSimplified,
   isStructuredAgeCriterion,
   parseLang,
+  parseStructuredAgeCitation,
   parseNct,
   toResponseBody,
   validateModelOutput,
@@ -192,7 +193,16 @@ describe("prompt builders", () => {
     const { system, user } = buildTranslatePrompt(english, "es");
     expect(user).toContain(english);
     expect(system).toMatch(/usted/i);
-    expect(system).toContain("same JSON structure".replace("JSON ", "JSON ")); // structure preserved
+    expect(system).toContain("same JSON structure"); // structure preserved
+    // Task 1: prompt must be provably consistent with checkTranslationInvariants —
+    // it must explicitly tell the model to copy source_criterion verbatim and preserve
+    // id / ruleOutIf / kind / order.
+    expect(system).toMatch(/source_criterion/);
+    expect(system).toMatch(/CHARACTER-FOR-CHARACTER|byte-for-byte/i);
+    expect(system).toMatch(/do not translate it/i);
+    expect(system).toMatch(/ruleOutIf/);
+    expect(system).toMatch(/kind/);
+    expect(system).toMatch(/order/i);
   });
 });
 
@@ -349,7 +359,100 @@ describe("checkSourceCriteria", () => {
         { id: "q3", text: "hospice?", ruleOutIf: "yes", source_criterion: "hospice care", kind: "exclusion" },
       ],
     });
-    expect(checkSourceCriteria(model, noAge)).toMatch(/structured age bounds but the study has none/);
+    expect(checkSourceCriteria(model, noAge)).toMatch(/cites minimumAge but the study has no minimumAge/);
+  });
+
+  // --- STRENGTHENED structured-age checks: having an age bound is NOT sufficient. ---
+  const AGE_DETAIL: TrialDetail = {
+    ...DETAIL,
+    eligibility: {
+      ...DETAIL.eligibility,
+      minAgeYears: 18,
+      maxAgeYears: 65,
+      criteriaText: "Inclusion: Type 2 diabetes. Exclusion: hospice care.",
+    },
+  };
+  function ageModel(sourceCriterion: string): SimplifyModel {
+    return validModel({
+      questions: [
+        { id: "qAge", text: "age?", ruleOutIf: "no", source_criterion: sourceCriterion, kind: "inclusion" },
+        { id: "q2", text: "diabetes?", ruleOutIf: "no", source_criterion: "Type 2 diabetes", kind: "inclusion" },
+        { id: "q3", text: "hospice?", ruleOutIf: "yes", source_criterion: "hospice care", kind: "exclusion" },
+      ],
+    });
+  }
+
+  it("ACCEPTS a correct minimumAge citation (value matches the study's minimum)", () => {
+    expect(checkSourceCriteria(ageModel("minimumAge = 18 years"), AGE_DETAIL)).toBeNull();
+  });
+  it("ACCEPTS a correct maximumAge citation (value matches the study's maximum)", () => {
+    expect(checkSourceCriteria(ageModel("maximumAge = 65 years"), AGE_DETAIL)).toBeNull();
+  });
+
+  it("REJECTS a minimumAge citation with the WRONG value (21 when the study's minimum is 18)", () => {
+    expect(checkSourceCriteria(ageModel("minimumAge = 21 years"), AGE_DETAIL)).toMatch(
+      /cites minimumAge = 21 but the study's minimumAge is 18/,
+    );
+  });
+  it("REJECTS a maximumAge citation with the WRONG value (80 when the study's maximum is 65)", () => {
+    expect(checkSourceCriteria(ageModel("maximumAge = 80 years"), AGE_DETAIL)).toMatch(
+      /cites maximumAge = 80 but the study's maximumAge is 65/,
+    );
+  });
+  it("REJECTS the WRONG field: a maximumAge citation when the study has NO maximum", () => {
+    const minOnly: TrialDetail = {
+      ...AGE_DETAIL,
+      eligibility: { ...AGE_DETAIL.eligibility, minAgeYears: 18, maxAgeYears: null },
+    };
+    expect(checkSourceCriteria(ageModel("maximumAge = 65 years"), minOnly)).toMatch(
+      /cites maximumAge but the study has no maximumAge/,
+    );
+  });
+  it("REJECTS the WRONG field: citing minimumAge's value against the maximum bound", () => {
+    // Study: min=18, max=65. A citation that names maximumAge but uses the minimum value 18
+    // must be rejected — right field name, wrong value for that field.
+    expect(checkSourceCriteria(ageModel("maximumAge = 18 years"), AGE_DETAIL)).toMatch(
+      /cites maximumAge = 18 but the study's maximumAge is 65/,
+    );
+  });
+  it("REJECTS a structured-age citation with NO parseable value", () => {
+    expect(checkSourceCriteria(ageModel("minimumAge requirement applies"), AGE_DETAIL)).toMatch(
+      /no age field\/value could be parsed/,
+    );
+  });
+  it("REJECTS an AMBIGUOUS citation naming BOTH bounds (cannot attribute the number)", () => {
+    expect(
+      checkSourceCriteria(ageModel("minimum age 18 and maximum age 65"), AGE_DETAIL),
+    ).toMatch(/no age field\/value could be parsed/);
+  });
+  it("allows a small tolerance only for NON-integer ages (e.g. 0.5-year infant minimum)", () => {
+    const infant: TrialDetail = {
+      ...AGE_DETAIL,
+      eligibility: { ...AGE_DETAIL.eligibility, minAgeYears: 0.5, maxAgeYears: null },
+    };
+    expect(checkSourceCriteria(ageModel("minimumAge = 0.5 years"), infant)).toBeNull();
+    // but a clearly different non-integer value is still rejected
+    expect(checkSourceCriteria(ageModel("minimumAge = 2.5 years"), infant)).toMatch(
+      /cites minimumAge = 2.5 but the study's minimumAge is 0.5/,
+    );
+  });
+});
+
+describe("parseStructuredAgeCitation", () => {
+  it("parses minimumAge field + value", () => {
+    expect(parseStructuredAgeCitation("minimumAge = 18 years")).toEqual({ field: "min", value: 18 });
+  });
+  it("parses maximumAge field + value", () => {
+    expect(parseStructuredAgeCitation("maximum age = 65 years")).toEqual({ field: "max", value: 65 });
+  });
+  it("parses a decimal value", () => {
+    expect(parseStructuredAgeCitation("minimum age 0.5")).toEqual({ field: "min", value: 0.5 });
+  });
+  it("returns null when both bounds are named (ambiguous)", () => {
+    expect(parseStructuredAgeCitation("minimum age 18 and maximum age 65")).toBeNull();
+  });
+  it("returns null when no number is present", () => {
+    expect(parseStructuredAgeCitation("minimumAge requirement")).toBeNull();
   });
 });
 

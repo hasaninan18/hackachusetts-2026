@@ -20,6 +20,17 @@ import {
 } from "@aws-sdk/client-bedrock-runtime";
 import { LANGS, type Lang } from "./types";
 import type { TrialDetail } from "./types";
+// Budget/timeout constants live in an SDK-FREE module so the client can import the
+// client-facing floor without pulling the AWS SDK into a "use client" bundle. We import
+// them here and RE-EXPORT below, keeping a single source of truth for server callers.
+import {
+  PER_CALL_TIMEOUT_MS,
+  STUDY_LOAD_BUDGET_MS,
+  BEDROCK_TOTAL_BUDGET_MS,
+  MIN_CALL_MS,
+  SERVER_TOTAL_BUDGET_MS,
+  CLIENT_TIMEOUT_FLOOR_MS,
+} from "./simplify-budget";
 
 // ---------------------------------------------------------------------------
 // Supported languages (derived from lib/types.ts — never re-declared).
@@ -345,11 +356,29 @@ export function buildEnglishPrompt(detail: TrialDetail): Prompt {
 
 /** Translation prompt: translate the VALIDATED English JSON, keep structure + ids (rule 14). */
 export function buildTranslatePrompt(englishJson: string, lang: Lang): Prompt {
+  // The validator (checkTranslationInvariants) enforces, byte-for-byte, that the translated
+  // output preserves question count/order, every id, every ruleOutIf, every kind, and that
+  // each source_criterion is IDENTICAL to the English source_criterion (it is evidence, not
+  // prose: translated.source_criterion === english.source_criterion). The prompt below is
+  // written to be PROVABLY CONSISTENT with that validator — it instructs the model to do
+  // exactly what the validator will check, so a cooperative model never trips the backstop.
+  // The validator remains the enforcement backstop regardless of what the model returns.
   const system = [
     "You translate a JSON object about a clinical trial from English into another language.",
     "Return JSON only, no markdown or code fences.",
-    "Keep the EXACT same JSON structure, keys, question ids, ruleOutIf values, and kind values.",
-    "Translate only the human-readable strings (summary, whatYouDo, timeCommitment, question text, source_criterion, staff_checks items).",
+    "Keep the EXACT same JSON structure and keys.",
+    "",
+    "DO NOT change any of these — copy each one EXACTLY from the English JSON, unchanged:",
+    "- every question id, and the SAME question ORDER (do not add, drop, reorder, or rename questions)",
+    '- every question ruleOutIf value ("yes" or "no")',
+    '- every question kind value ("inclusion" or "exclusion")',
+    "- every question source_criterion: copy it CHARACTER-FOR-CHARACTER from the English JSON. It is the original English evidence quote. Do NOT translate it, do NOT rephrase it, do NOT change its casing or punctuation. Each translated source_criterion string must be byte-for-byte identical to the English source_criterion string.",
+    "",
+    "TRANSLATE ONLY these human-readable text fields into the target language:",
+    "- summary, whatYouDo, timeCommitment",
+    "- each question's text",
+    "- each staff_checks item",
+    "",
     "Keep every NCT id, phone number, and email address EXACTLY as written — never translate or reformat them.",
     "Never add words that claim the reader is eligible, qualifies, is accepted, or is approved.",
     `Target language: ${LANG_LABEL[lang]}.`,
@@ -357,7 +386,11 @@ export function buildTranslatePrompt(englishJson: string, lang: Lang): Prompt {
   ]
     .filter(Boolean)
     .join("\n");
-  const user = ["Translate this JSON:", "", englishJson].join("\n");
+  const user = [
+    "Translate this JSON. Copy id, ruleOutIf, kind, and source_criterion VERBATIM from the English JSON below; translate only summary, whatYouDo, timeCommitment, each question text, and each staff_checks item.",
+    "",
+    englishJson,
+  ].join("\n");
   return { system, user };
 }
 
@@ -428,49 +461,44 @@ export type GenerateResult =
   | { ok: false; error: string };
 
 // ---------------------------------------------------------------------------
-// BOUNDED TOTAL REQUEST BUDGET (Task 1)
+// BOUNDED TOTAL REQUEST BUDGET (Task 1) — numeric values live in ./simplify-budget
+// (SDK-FREE) and are re-exported here. This comment documents the budget math that the
+// orchestrator enforces.
 // ---------------------------------------------------------------------------
 // POST /api/simplify must ALWAYS answer within a known wall-clock bound with either a
-// validated body or a safe {error} — it must never hang. The budget is split into named
-// phases whose per-call ceilings SUM to the total, and the orchestrator enforces a single
-// deadline: every Converse call is given min(PER_CALL_TIMEOUT_MS, time left on the
+// validated body or a safe {error} — it must never hang. The orchestrator enforces a single
+// shared deadline: every Converse call is given min(PER_CALL_TIMEOUT_MS, time left on the
 // deadline), so once the budget is spent the next call is aborted immediately and the
 // pipeline returns its safe error.
 //
-// Budget math (each phase bounded; they sum to the total):
-//   study load (bounded in the route) ........... STUDY_LOAD_BUDGET_MS   = 1500 ms
-//   English:  primary + retry + fallback ........ 3 × PER_CALL_TIMEOUT_MS = 3 × 2000
-//   translate: primary + retry + fallback ....... 3 × PER_CALL_TIMEOUT_MS = 3 × 2000
+// Budget math (measured against live Bedrock for NCT07043426 EN+ES — see the scratch
+// verification; a single Converse call to the Nova models realistically needs well over the
+// old 2000 ms ceiling, so PER_CALL_TIMEOUT_MS was raised to a realistic bounded value):
+//   study load (bounded in the route) ........... STUDY_LOAD_BUDGET_MS    = 1500 ms
+//   English:  primary + retry + fallback ........ 3 × PER_CALL_TIMEOUT_MS = 3 × 8000
+//   translate: primary + retry + fallback ....... 3 × PER_CALL_TIMEOUT_MS = 3 × 8000
 //   -----------------------------------------------------------------------------
-//   Bedrock work (English + translate) worst case = 6 × 2000 = 12000 ms, but the
-//   orchestrator caps the SUM of Bedrock work at BEDROCK_TOTAL_BUDGET_MS = 7000 ms via
-//   the shared deadline (a call never starts if < MIN_CALL_MS remains), so:
+//   Bedrock work worst case = 6 × 8000 = 48000 ms, but the orchestrator caps the SUM of
+//   Bedrock work at BEDROCK_TOTAL_BUDGET_MS = 26000 ms via the shared deadline (a call
+//   never starts if < MIN_CALL_MS remains), so:
 //   SERVER TOTAL BUDGET = STUDY_LOAD_BUDGET_MS + BEDROCK_TOTAL_BUDGET_MS
-//                       = 1500 + 7000 = 8500 ms  (SERVER_TOTAL_BUDGET_MS).
+//                       = 1500 + 26000 = 27500 ms  (SERVER_TOTAL_BUDGET_MS).
+//   26000 covers a realistic path: English (one call ~ a few s, plus headroom for one
+//   retry/fallback) + Spanish translate (one call) with margin, all still bounded.
 //
 // COORDINATION WITH THE CLIENT: the client abort/timeout MUST be >= SERVER_TOTAL_BUDGET_MS
 // so the client never gives up before the server returns its safe error. The client timeout
-// lives in components/TrialPlain.tsx (TIMEOUT_MS), a file this code does NOT own — see
-// CLIENT_TIMEOUT_FLOOR_MS below and the INTEGRATION REQUIREMENT in the report.
-/** Each single Bedrock Converse call is bounded by this ceiling. */
-export const PER_CALL_TIMEOUT_MS = 2000;
-/** Bounded wall-clock budget for ClinicalTrials.gov study load (enforced in the route). */
-export const STUDY_LOAD_BUDGET_MS = 1500;
-/** Total budget for ALL Bedrock work (English + translate, each primary+retry+fallback). */
-export const BEDROCK_TOTAL_BUDGET_MS = 7000;
-/** A call is not started if less than this remains on the deadline (avoids 0ms calls). */
-export const MIN_CALL_MS = 250;
-/**
- * The whole-operation server budget: study load + all Bedrock work. The server always
- * responds within this bound with a validated body or a safe error.
- */
-export const SERVER_TOTAL_BUDGET_MS = STUDY_LOAD_BUDGET_MS + BEDROCK_TOTAL_BUDGET_MS; // 8500
-/**
- * The MINIMUM the client abort/timeout must be set to so it never gives up before the
- * server's safe error. Equals the server total budget plus a small network/parse margin.
- * EXPORTED so the frontend owner can import it rather than hard-coding a second number.
- */
-export const CLIENT_TIMEOUT_FLOOR_MS = SERVER_TOTAL_BUDGET_MS + 1500; // 10000 ms
+// lives in components/TrialPlain.tsx (TIMEOUT_MS), a file this code does NOT own. The client
+// must import CLIENT_TIMEOUT_FLOOR_MS from the SDK-FREE module lib/simplify-budget.ts (NOT
+// from lib/bedrock.ts, which imports the AWS SDK) — see the INTEGRATION REQUIREMENT report.
+export {
+  PER_CALL_TIMEOUT_MS,
+  STUDY_LOAD_BUDGET_MS,
+  BEDROCK_TOTAL_BUDGET_MS,
+  MIN_CALL_MS,
+  SERVER_TOTAL_BUDGET_MS,
+  CLIENT_TIMEOUT_FLOOR_MS,
+};
 
 /** A monotonic-ish deadline: remaining() never goes below 0. */
 interface Deadline {
@@ -593,10 +621,11 @@ function normalizeForQuoteMatch(s: string): string {
 }
 
 /**
- * Markers a model may legitimately use for a source_criterion that is derived from the
- * STRUCTURED age bounds (minimumAge/maximumAge) rather than quoted free text. When a
- * question's source_criterion references these structured fields, it is validated against
- * the structured values, NOT required to appear verbatim in the free-text criteria block.
+ * Markers that signal a source_criterion is derived from the STRUCTURED age bounds
+ * (minimumAge/maximumAge) rather than quoted free text. When a question's source_criterion
+ * references these structured fields it is validated against the structured VALUES of the
+ * study (see validateStructuredAgeCitation), NOT required to appear verbatim in the
+ * free-text criteria block.
  */
 const STRUCTURED_AGE_MARKERS = [
   "minimumage",
@@ -612,14 +641,80 @@ export function isStructuredAgeCriterion(sourceCriterion: string): boolean {
   const n = normalizeForQuoteMatch(sourceCriterion);
   return STRUCTURED_AGE_MARKERS.some((m) => n.includes(m));
 }
-
+/** Which structured age bound a citation names. */
+export type AgeBoundField = "min" | "max";
+export interface StructuredAgeCitation {
+  field: AgeBoundField;
+  value: number;
+}
+/** Tolerance (years) allowed ONLY when a cited or actual age is non-integer. */
+const AGE_MATCH_TOLERANCE_YEARS = 0.1;
+/**
+ * Parse a structured-age source_criterion into the CITED field (min vs max) and the CITED
+ * numeric age VALUE, or null if neither can be extracted. Field detection prefers explicit
+ * "minimum"/"maximum" (or "minAge"/"maxAge") wording; the value is the first number in the
+ * string. This is the data we validate against the study's ACTUAL bounds -- merely looking
+ * like an age citation is NOT enough.
+ */
+export function parseStructuredAgeCitation(sourceCriterion: string): StructuredAgeCitation | null {
+  const n = normalizeForQuoteMatch(sourceCriterion);
+  const mentionsMin = /\bmin(?:imum)?\s*age\b|\bminimumage\b/.test(n);
+  const mentionsMax = /\bmax(?:imum)?\s*age\b|\bmaximumage\b/.test(n);
+  let field: AgeBoundField | null = null;
+  // If exactly one of the two is named, that is the cited field. If BOTH are named we
+  // cannot attribute the one number to one field, so the citation is ambiguous and
+  // unparseable -- reject it.
+  if (mentionsMin && !mentionsMax) field = "min";
+  else if (mentionsMax && !mentionsMin) field = "max";
+  if (field === null) return null;
+  // Extract the first numeric value (supports integers and decimals, e.g. "0.5 years").
+  const numMatch = n.match(/(\d+(?:\.\d+)?)/);
+  if (!numMatch) return null;
+  const value = Number(numMatch[1]);
+  if (!Number.isFinite(value)) return null;
+  return { field, value };
+}
+/**
+ * Validate a structured-age citation against the study's ACTUAL bounds. Returns an error
+ * string, or null when the citation is correct. Rules:
+ *   - the citation must parse into a field + numeric value (else reject);
+ *   - the cited field must EXIST on the study (reject a maximumAge citation when the study
+ *     has no maximumAge, or a minimumAge citation when it has no minimumAge);
+ *   - the cited value must MATCH the study's actual value for that field: exact match when
+ *     both are integers; a small tolerance is allowed only when either value is non-integer.
+ */
+function validateStructuredAgeCitation(
+  qId: string,
+  sourceCriterion: string,
+  minAgeYears: number | null,
+  maxAgeYears: number | null,
+): string | null {
+  const parsed = parseStructuredAgeCitation(sourceCriterion);
+  if (!parsed) {
+    return `question "${qId}" cites structured age bounds but no age field/value could be parsed from the source_criterion`;
+  }
+  const actual = parsed.field === "min" ? minAgeYears : maxAgeYears;
+  const label = parsed.field === "min" ? "minimumAge" : "maximumAge";
+  if (actual === null) {
+    return `question "${qId}" cites ${label} but the study has no ${label}`;
+  }
+  const bothIntegers = Number.isInteger(parsed.value) && Number.isInteger(actual);
+  const matches = bothIntegers
+    ? parsed.value === actual
+    : Math.abs(parsed.value - actual) <= AGE_MATCH_TOLERANCE_YEARS;
+  if (!matches) {
+    return `question "${qId}" cites ${label} = ${parsed.value} but the study's ${label} is ${actual}`;
+  }
+  return null;
+}
 /**
  * Validate every question's source_criterion against the study's eligibility criteria.
- * A quote must be SUBSTANTIVELY present in the criteria text (whitespace/case normalized).
- * EXCEPTION: a source_criterion derived from the structured age bounds (minimumAge/
- * maximumAge) is validated against those structured fields, so a legitimate age question
- * is not rejected for lacking a verbatim free-text match. Returns an error string on the
- * first violation, or null when all source_criterion values are grounded.
+ * A free-text quote must be SUBSTANTIVELY present in the criteria text (whitespace/case
+ * normalized). A STRUCTURED-age citation (minimumAge/maximumAge) is instead validated
+ * against the study's actual structured bounds: the cited FIELD must exist and the cited
+ * VALUE must match the study's value for that field -- merely having some age bound is NOT
+ * sufficient. Returns an error string on the first violation, or null when all
+ * source_criterion values are grounded.
  */
 export function checkSourceCriteria(
   model: SimplifyModel,
@@ -627,13 +722,15 @@ export function checkSourceCriteria(
 ): string | null {
   const criteriaNorm = normalizeForQuoteMatch(detail.eligibility.criteriaText ?? "");
   const { minAgeYears, maxAgeYears } = detail.eligibility;
-  const hasStructuredAge = minAgeYears !== null || maxAgeYears !== null;
   for (const q of model.questions) {
     const quote = q.source_criterion;
     if (isStructuredAgeCriterion(quote)) {
-      // Derived from structured fields: accept only if the study actually has age bounds.
-      if (hasStructuredAge) continue;
-      return `question "${q.id}" cites structured age bounds but the study has none`;
+      // Derived from structured fields: parse the cited field + value and verify them
+      // against the study's ACTUAL bounds. This rejects wrong field, wrong value, or a
+      // citation of a bound the study lacks.
+      const err = validateStructuredAgeCitation(q.id, quote, minAgeYears, maxAgeYears);
+      if (err) return err;
+      continue;
     }
     const quoteNorm = normalizeForQuoteMatch(quote);
     if (!quoteNorm) {
