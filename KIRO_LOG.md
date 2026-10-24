@@ -34,3 +34,10 @@ Format: `- [time] <area> — what Kiro did / what it caught / why it mattered`
 
 ## Kiro tools / Crew / Powers
 <!-- e.g. - [time] crew — ran fit-check and getting-there spec tasks in parallel. -->
+
+## Neil — Codex follow-up (2026-10-24; not Kiro evidence)
+- Existing frontend work was already on main: `7a0f458` (screens/checklist/transit/contact), `3cd409a` (review fixes), and `cdd898d` (disclaimer/safety tests). This follow-up builds on those commits; it is not a new Kiro rebuild.
+- With Neil's explicit approval to implement in Codex, completed five UI dictionaries, bundled Noto fonts locally, and added a source-linked reported-results section with validation and honest unchecked/missing/error states. No real outcome numbers were invented; live results integration remains pending.
+- Ran the existing copy-guard script from Codex and simplified the over-grade English empty-search message it flagged. This records use of the script, not a Kiro hook firing.
+- Validation during implementation: 61 tests passed; typecheck and production build passed; lint had one pre-existing unused-variable warning. Chromium checks covered six language homepages, 375px layout, Spanish ZIP search through the checklist, no health-answer POSTs, source/print links, language switching/reset, desktop width, and no browser errors.
+- For Hasan's review request, prepared `.kiro/specs/trialpath-ui/{requirements,design,tasks}.md` retrospectively in Codex and isolated outcome types in `lib/outcomes.ts` to keep shared `lib/types.ts` and `lib/geo.ts` unchanged. These files are review documentation, **not proof of Kiro-authored spec-first development**. Actual Kiro execution and Vercel preview verification remain outstanding.

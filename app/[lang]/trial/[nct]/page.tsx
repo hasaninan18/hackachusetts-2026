@@ -6,9 +6,11 @@ import { cache, Suspense } from "react";
 import { ContactCard } from "@/components/ContactCard";
 import { GettingThere } from "@/components/GettingThere";
 import { TrialPlain } from "@/components/TrialPlain";
+import { StudyResults } from "@/components/StudyResults";
 import { getTrial, wantsMocks } from "@/lib/data";
 import { getDictionary, isLang, translator } from "@/lib/i18n";
-import type { Eligibility, TrialDetail } from "@/lib/types";
+import type { Eligibility } from "@/lib/types";
+import type { TrialDetailWithOutcomes } from "@/lib/outcomes";
 
 const NCT_RE = /^NCT\d{8}$/;
 const APP_NAME = "TrialPath MA";
@@ -95,7 +97,7 @@ async function Trial({ params, searchParams }: Props) {
     </nav>
   );
 
-  let trial: TrialDetail | null;
+  let trial: TrialDetailWithOutcomes | null;
   try {
     trial = await loadTrial(nct, mock);
   } catch (err) {
@@ -168,6 +170,8 @@ async function Trial({ params, searchParams }: Props) {
         eligibility={eligibility}
         dict={dict}
       />
+
+      <StudyResults nctId={trial.nctId} outcomes={trial.outcomes} t={t} />
 
       <GettingThere site={site} stops={trial.stops} origin={origin} t={t} />
 
