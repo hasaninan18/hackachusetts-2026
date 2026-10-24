@@ -7,15 +7,18 @@ import { format } from "./index";
 const keys = Object.keys(en) as MessageKey[];
 const placeholders = (s: string) => (s.match(/\{\w+\}/g) ?? []).sort();
 
-// Words that would claim a decision only the study team can make (see safety.md).
+// Words that would claim a decision only the study team can make. Includes the per-language
+// phrases from .kiro/steering/safety.md §1. The disclaimer is exempt: §4 fixes its wording
+// ("The study team decides eligibility") and it is the one place the concept may appear.
 const FORBIDDEN: Record<string, RegExp> = {
-  en: /eligib|qualif/i,
-  es: /elegib|califica|cualifica/i,
-  pt: /eleg[ií]ve|qualifica/i,
+  en: /eligib|qualif|you're a match|meet the criteria|guaranteed|accepted|approved for/i,
+  es: /elegib|califica|cualifica|cumple (con )?los requisitos/i,
+  pt: /eleg[ií]ve|qualifica|atende aos crit[ée]rios/i,
   ht: /elijib|kalifye/i,
-  zh: /资格|合格/,
+  zh: /资格|合格|符合条件/,
   vi: /đủ điều kiện|hội đủ/i,
 };
+const EXEMPT: MessageKey[] = ["disclaimer"];
 
 describe("dictionaries", () => {
   it.each(LANGS.filter((l) => l !== "en"))("%s has every key", (lang) => {
@@ -31,8 +34,14 @@ describe("dictionaries", () => {
   });
 
   it.each([...LANGS])("%s never claims eligibility", (lang) => {
-    const strings = lang === "en" ? Object.values(en) : Object.values(dictionaries[lang]);
-    for (const s of strings) expect(s).not.toMatch(FORBIDDEN[lang]);
+    const dict: Partial<Record<MessageKey, string>> = lang === "en" ? en : dictionaries[lang];
+    for (const [k, s] of Object.entries(dict) as [MessageKey, string][]) {
+      if (!EXEMPT.includes(k)) expect(s, `${lang} ${k}`).not.toMatch(FORBIDDEN[lang]);
+    }
+  });
+
+  it("the disclaimer is exactly the safety.md §4 text", () => {
+    expect(en.disclaimer).toBe("TrialPath is not medical advice. The study team decides eligibility.");
   });
 
   it("has no unknown keys", () => {

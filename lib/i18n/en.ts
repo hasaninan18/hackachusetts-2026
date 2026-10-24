@@ -1,11 +1,12 @@
 // Source strings for every UI label. Other languages in ./dictionaries mirror these keys.
-// Rules (see .kiro/steering/safety.md): ~8th-grade reading level; never "eligible" or "qualify".
+// Rules (see .kiro/steering/safety.md): ~8th-grade reading level; never claim anyone is eligible
+// or qualifies. The only use of "eligibility" is the disclaimer, which safety.md §4 fixes verbatim.
 // {name} placeholders are filled by t(); keep them unchanged when translating.
 
 export const en = {
   "app.name": "TrialPath MA",
   "app.tagline": "Find health studies near you. Read about them in simple words, in your language. See how to get there by bus or train.",
-  "disclaimer": "TrialPath is not medical advice. The study team decides who can join.",
+  "disclaimer": "TrialPath is not medical advice. The study team decides eligibility.",
   "lang.label": "Language",
   "nav.back": "Back",
   "nav.newSearch": "New search",
