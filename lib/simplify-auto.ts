@@ -261,6 +261,24 @@ export function checkTokensPreserved(field: string, original: string, output: st
 }
 
 /**
+ * The study text a code in the English prose may come from: the registry fields the prose
+ * is written from, plus every Massachusetts site's facility name and city. The summary must
+ * name the site, and site names can look like codes ("K2 Medical Research - Foxborough").
+ * Used ONLY for the code-token check; protected values (NCT ids, phones, emails) keep their
+ * own, narrower source.
+ */
+export function codeSourceText(detail: TrialDetail): string {
+  return [
+    detail.nctId,
+    detail.title,
+    detail.briefSummary,
+    detail.eligibility.criteriaText,
+    ...detail.contacts.map((c) => [c.name, c.phone, c.email].filter(Boolean).join(" ")),
+    ...detail.sites.flatMap((s) => [s.name, s.city]),
+  ].join("\n");
+}
+
+/**
  * English prose (summary, whatYouDo) written from the registry: non-empty, no banned phrase
  * in any language, and every code it uses ends exactly where a code in the source text ends.
  * So a changed or cut-off code ("LY572488" for "LY5724886") fails, while the common short

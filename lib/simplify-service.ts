@@ -36,6 +36,7 @@ import { SHARED_CACHE_TTL_SECONDS, sharedCache, type SharedCache } from "./share
 import {
   KEEP_EXACT_RULE,
   buildTitleAndProseTranslatePrompt,
+  codeSourceText,
   isValidCachedTranslation,
   parseTranslatedTitle,
   resolveChecklist,
@@ -193,7 +194,7 @@ export async function generateTrialSimplify(deps: GenerateTrialDeps): Promise<Ge
     const generated = await callWithOneRetry(deps, deadline, prompt, (raw) => {
       const v = validateProseOutput(raw, { lang: "en", source });
       if (!v.ok) return v;
-      const err = validateEnglishFields(v.value, sourceText);
+      const err = validateEnglishFields(v.value, codeSourceText(detail));
       return err ? { ok: false, error: err } : v;
     });
     if (!generated.ok) return { ok: false, error: `english generation failed: ${generated.error}` };

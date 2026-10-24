@@ -6,6 +6,7 @@ import {
   ALL_BANNED_PHRASES,
   buildTitleAndProseTranslatePrompt,
   checkTokensPreserved,
+  codeSourceText,
   codeTokens,
   findBannedPhrase,
   numberTokens,
@@ -204,6 +205,20 @@ describe("English fields", () => {
       expect(validateEnglishFields(fields(`${bad} is a study drug.`), source)).toMatch(/code not in the study data/);
     }
   });
+  it("site facility names and cities are part of the code source; invented codes are not", () => {
+    const site = { name: "K2 Medical Research - Foxborough", city: "Foxborough", lat: 42.065, lon: -71.248, locationPrecision: "facility" as const };
+    const detail = { ...heroDetail(), nctId: "NCT07783802", nearestSite: site, sites: [site] };
+    const text = codeSourceText(detail);
+    expect(text).toContain("K2 Medical Research - Foxborough");
+    expect(text).toContain("Foxborough");
+    expect(validateEnglishFields(fields("This study is at K2 Medical Research."), text)).toBeNull();
+    // Without the site in the source, the same summary fails (the bug).
+    expect(validateEnglishFields(fields("This study is at K2 Medical Research."), source)).toMatch(/"K2"/);
+    expect(validateEnglishFields(fields("K2 Medical Research tests XR9999."), text)).toMatch(
+      /code not in the study data: "XR9999"/,
+    );
+  });
+
   it("rejects banned words from other languages too", () => {
     expect(validateEnglishFields({ summary: "A study.", whatYouDo: "Usted califica." }, source)).toMatch(/banned/);
   });

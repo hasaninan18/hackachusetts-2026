@@ -5,8 +5,8 @@ import type { Converse } from "./bedrock";
 import type { SharedCache } from "./shared-cache";
 import { sourceHash, type CachedTranslation } from "./simplify-auto";
 import { criteriaRevisionHash } from "./simplify-mappings";
-import { simplifyCacheKey, simplifyTrial } from "./simplify-service";
-import { HERO_CRITERIA, heroCriteriaWithHospice } from "./test-fixtures/nct07043426";
+import { generateTrialSimplify, simplifyCacheKey, simplifyTrial } from "./simplify-service";
+import { HERO_CRITERIA, heroCriteriaWithHospice, heroDetail } from "./test-fixtures/nct07043426";
 import { toDetail } from "./clinicaltrials";
 import type { CtgStudy } from "./api-types";
 
@@ -168,6 +168,47 @@ describe("simplifyTrial + shared cache", () => {
     expect(result).toMatchObject({ ok: false, status: 503 });
     expect(converse).toHaveBeenCalledTimes(2); // one call + one retry
     expect(cache.set).not.toHaveBeenCalled();
+  });
+});
+
+describe("site names count as study data for the code check (NCT07783802 regression)", () => {
+  const k2Site = {
+    name: "K2 Medical Research - Foxborough",
+    city: "Foxborough",
+    lat: 42.065,
+    lon: -71.248,
+    locationPrecision: "facility" as const,
+  };
+  const k2Detail = {
+    ...heroDetail(),
+    nctId: "NCT07783802",
+    title: "A Study of an Investigational Medicine in Adults With Obesity",
+    nearestSite: k2Site,
+    sites: [k2Site],
+  };
+  const prose = (summary: string) =>
+    JSON.stringify({ ...ENGLISH, summary, whatYouDo: "You visit K2 Medical Research in Foxborough." });
+
+  it("a summary naming K2 Medical Research passes on the first try", async () => {
+    const converse = vi.fn<Converse>(async () =>
+      prose("This study at K2 Medical Research - Foxborough tests a medicine for obesity. Taking part is your choice."),
+    );
+    const result = await generateTrialSimplify({ detail: k2Detail, lang: "en", converse });
+    expect(result.ok).toBe(true);
+    expect(converse).toHaveBeenCalledTimes(1);
+    if (result.ok) expect(result.body.summary).toContain("K2 Medical Research - Foxborough");
+  });
+
+  it("an invented code like XR9999 still fails, even next to the site name", async () => {
+    const converse = vi.fn<Converse>(async () =>
+      prose("This study at K2 Medical Research tests XR9999 for obesity. Taking part is your choice."),
+    );
+    const result = await generateTrialSimplify({ detail: k2Detail, lang: "en", converse });
+    expect(result).toEqual({
+      ok: false,
+      error: 'english generation failed: summary has a code not in the study data: "XR9999"',
+    });
+    expect(converse).toHaveBeenCalledTimes(2); // one call + one retry
   });
 });
 
