@@ -30,6 +30,42 @@ _TBD_
 - Video (<3 min): _TBD_
 
 ## How we used Kiro
-_Specs, steering, hooks, MCP, property-based tests, powers, Kiro tools used (IDE / CLI / Web / Crew)._
+
+Full detail: **[docs/KIRO_WRITEUP.md](docs/KIRO_WRITEUP.md)**. Claims below are grounded in
+`KIRO_LOG.md`, `docs/TASKS.md`, the files in `.kiro/`, and the merged `main` branch.
+
+- **Kiro tools (IDE, CLI, Web, Crew).** An earlier **Kiro Web** session authored the **steering**
+  and **hooks**; the later **Kiro IDE** session authored the **specs, property tests, MCP probes,
+  the Context7 review, and the CLI run**. The **Kiro CLI** (`kiro-cli.exe`, 2.34.0) ran
+  `npx vitest run` with no edits in 23s and reported, **at that time**, 62 tests / 57 passed / 5
+  failed (the empty translation dictionaries) — fixed on `main`. The `kiro` command is the IDE
+  launcher. **Kiro Crew: TODO — no Crew run in the log.**
+- **Spec-driven vs vibe coding.** Three features are spec-driven with EARS requirements and were
+  written in the Kiro IDE: **fit-check**, **getting-there**, and **translation** — each with
+  **requirements + design + tasks**. `trialpath-ui` is a **retrospective Codex spec**, not proof of
+  spec-first Kiro development. Vibe coding: TODO — the log attributes no feature code to a vibe
+  session.
+- **Hooks.** **Copy guard** and **Test on save** (`PostFileSave`) each showed in the IDE as
+  **triggered automatically when the agent wrote a file** (agent file writes, not manual saves;
+  panel output not captured). A **manual-save observation with panel output is a remaining TODO.**
+  The manual `/update-docs` steering command is distinct from the hooks. Copy guard checks
+  **EN/ES/PT/HT/ZH/VI**, matches both slash styles, and runs `node tests/copy-guard.mjs`.
+- **Steering.** `.kiro/steering/{safety,product,tech,structure}.md` encode the non-negotiables
+  (never claim eligibility, ≤ 8th-grade copy, privacy, verbatim identifiers) that every spec and
+  generated file inherits, plus the `/update-docs` manual command. The five **Vietnamese** forbidden
+  phrases added to `safety.md` are **machine-drafted and need review by a Vietnamese speaker.**
+- **MCP.** The `fetch` MCP server (`uvx mcp-server-fetch`) probed MBTA V3 and ClinicalTrials.gov
+  v2 live to confirm real field shapes before writing parsers. CT.gov was **blocked by robots.txt**
+  until `--ignore-robots-txt` was added and the server restarted.
+- **Property-based testing (fast-check).** 16 properties across two files, all passing — **no
+  property failed and no counterexample was found.** They document today's real contracts (e.g.
+  `quickCheck` returns `possible-fit` / `ask-team`).
+- **Powers.** Used the **Context7** Power to check `proxy.ts`, the `[lang]` routing, and the
+  fast-check usage against current docs for the installed versions. **Context7 found no problems.**
+- **Integrated snapshot:** `main` is at **178 tests passing** (179 with the Vietnamese additions),
+  per `KIRO_LOG.md`. PR merges are done from the `hasaninan18` account (per `docs/TASKS.md`); that
+  doesn't change who did the work. **Still pending** (per `docs/TASKS.md`): Hasan's simplify route
+  (source-evidence, age validation, EN/ES verification) and Neil's cautious `quickCheck` fallback +
+  remaining frontend QA — none claimed complete.
 
 > TrialPath is not medical advice. The study team decides eligibility.

@@ -259,3 +259,181 @@ describe("GET /api/trials/[nct] — upstream failure", () => {
     expect(typeof body.error).toBe("string");
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// getting-there — MBTA stops enrichment (spec: getting-there, Requirements 1, 5, 6, 8).
+//
+// The route makes TWO fetches: ClinicalTrials.gov (detail) then MBTA (stops). We route the
+// mock by URL so CTG succeeds while MBTA independently succeeds/fails, proving the trial
+// detail is never broken by an MBTA problem (stops fall back to []).
+//
+// NOTE on cache isolation: the MBTA fetch is cached by its REQUEST URL (lib/cache.ts), and
+// that URL is derived from the anchor site coordinates. So each test uses a DISTINCT, non-
+// centroid site coordinate — which correctCoordinates passes through verbatim as "facility"
+// — giving a unique MBTA URL (and cache key) per test, mirroring the unique-NCT pattern.
+// ---------------------------------------------------------------------------
+const MBTA_HOST = "api-v3.mbta.com";
+
+/** A recruiting MA study whose single site sits at a given NON-centroid coordinate. */
+function siteStudy(nctId: string, lat: number, lon: number): CtgStudy {
+  return {
+    protocolSection: {
+      identificationModule: { nctId, briefTitle: "THRIVE-DM — Type 2 Diabetes" },
+      conditionsModule: { conditions: ["Type 2 Diabetes"] },
+      designModule: { phases: ["PHASE2"] },
+      descriptionModule: { briefSummary: "A diabetes trial at BMC." },
+      eligibilityModule: {
+        eligibilityCriteria: "Adults 18+ with type 2 diabetes.",
+        sex: "ALL",
+        minimumAge: "18 Years",
+        maximumAge: "75 Years",
+        healthyVolunteers: false,
+      },
+      contactsLocationsModule: {
+        centralContacts: [
+          { name: "Study Coordinator", phone: "617-555-0100", email: "thrive@bmc.org", role: "CONTACT" },
+        ],
+        locations: [
+          {
+            facility: "Boston Medical Center",
+            city: "Boston",
+            state: "Massachusetts",
+            zip: "02118",
+            status: "RECRUITING",
+            geoPoint: { lat, lon },
+          },
+        ],
+      },
+    },
+  };
+}
+
+function mbtaStop(over: {
+  id: string;
+  name: string;
+  lat: number;
+  lon: number;
+  vehicle_type: number;
+  wheelchair_boarding?: number;
+  parentId?: string;
+}) {
+  return {
+    id: over.id,
+    attributes: {
+      name: over.name,
+      latitude: over.lat,
+      longitude: over.lon,
+      vehicle_type: over.vehicle_type,
+      wheelchair_boarding: over.wheelchair_boarding,
+    },
+    relationships: {
+      parent_station: { data: over.parentId ? { id: over.parentId } : null },
+    },
+  };
+}
+
+/** Route the fetch mock by host: CTG returns `ctg`; MBTA runs `mbta(url)`. */
+function mockFetchRouted(ctg: CtgStudiesResponse, mbta: (url: string) => Promise<Response>) {
+  const fetchMock = vi.fn(async (input: string | URL | Request): Promise<Response> => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (url.includes(MBTA_HOST)) return mbta(url);
+    return new Response(JSON.stringify(ctg), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+// Distinct non-centroid site coordinate per test → distinct MBTA URL/cache key.
+let siteCounter = 0;
+const uniqueSite = () => ({ lat: 42.4 + siteCounter * 1e-3, lon: -71.2 - siteCounter++ * 1e-3 });
+
+describe("GET /api/trials/[nct] — MBTA stops enrichment", () => {
+  it("populates stops (nearest-first, lines:[], wheelchair preserved) from the site's corrected coords", async () => {
+    const nct = uniqueNct();
+    const site = uniqueSite();
+    const mbtaBody = {
+      data: [
+        // Nearest to the site (same point), accessible.
+        mbtaStop({ id: "near", name: "Door Stop", lat: site.lat, lon: site.lon, vehicle_type: 3, wheelchair_boarding: 1 }),
+        // Farther, not accessible.
+        mbtaStop({ id: "far", name: "Farther Stop", lat: site.lat + 0.01, lon: site.lon + 0.01, vehicle_type: 3, wheelchair_boarding: 2 }),
+      ],
+    };
+    const fetchMock = mockFetchRouted({ studies: [siteStudy(nct, site.lat, site.lon)], totalCount: 1 }, async () =>
+      new Response(JSON.stringify(mbtaBody), {
+        status: 200,
+        headers: { "content-type": "application/vnd.api+json" },
+      }),
+    );
+    const res = await GET(makeRequest(nct), makeContext(nct));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.stops.length).toBeGreaterThanOrEqual(1);
+    // Nearest-first ordering.
+    expect(body.stops[0].name).toBe("Door Stop");
+    expect(body.stops[0].wheelchair).toBe(true);
+    expect(body.stops[0].lines).toEqual([]);
+    // MBTA was queried with the site's (facility-precision) coordinates, not the centroid.
+    const mbtaCall = fetchMock.mock.calls.find(([u]) => String(u).includes(MBTA_HOST));
+    expect(mbtaCall).toBeDefined();
+    const mbtaUrl = new URL(String(mbtaCall![0]));
+    expect(mbtaUrl.searchParams.get("filter[latitude]")).toBe(String(site.lat));
+    expect(mbtaUrl.searchParams.get("filter[latitude]")).not.toBe(String(CENTROID.lat));
+  });
+
+  it("anchors MBTA on the CORRECTED BMC coords (not the centroid) when the site reports the centroid", async () => {
+    const nct = uniqueNct();
+    // Site at the shared Boston centroid → correctCoordinates maps BMC to 42.335,-71.0728,
+    // which becomes the response's nearestSite and therefore the MBTA anchor.
+    mockFetchRouted({ studies: [bmcStudy(nct)], totalCount: 1 }, async () =>
+      new Response(JSON.stringify({ data: [] }), {
+        status: 200,
+        headers: { "content-type": "application/vnd.api+json" },
+      }),
+    );
+    const res = await GET(makeRequest(nct), makeContext(nct));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // nearestSite is the corrected BMC building, never the raw centroid.
+    expect(body.nearestSite.lat).toBeCloseTo(42.335, 3);
+    expect(body.nearestSite.lon).toBeCloseTo(-71.0728, 3);
+    expect(body.nearestSite.lat).not.toBe(CENTROID.lat);
+    expect(body.nearestSite.locationPrecision).toBe("facility");
+    // Stops is always a valid array (empty here: the MBTA mock returned no data, or a
+    // fresh cache entry from a prior BMC lookup served []).
+    expect(Array.isArray(body.stops)).toBe(true);
+  });
+
+  it("returns 200 with stops: [] when the MBTA request fails (detail unaffected)", async () => {
+    const nct = uniqueNct();
+    const site = uniqueSite();
+    mockFetchRouted({ studies: [siteStudy(nct, site.lat, site.lon)], totalCount: 1 }, async () => {
+      throw new TypeError("mbta down");
+    });
+    const res = await GET(makeRequest(nct), makeContext(nct));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // ClinicalTrials.gov detail is intact...
+    expect(body.title).toBe("THRIVE-DM — Type 2 Diabetes");
+    expect(body.eligibility.minAgeYears).toBe(18);
+    expect(body.contacts[0].phone).toBe("617-555-0100");
+    // ...and stops gracefully degraded to [].
+    expect(body.stops).toEqual([]);
+  });
+
+  it("returns 200 with stops: [] when MBTA responds non-OK", async () => {
+    const nct = uniqueNct();
+    const site = uniqueSite();
+    mockFetchRouted({ studies: [siteStudy(nct, site.lat, site.lon)], totalCount: 1 }, async () =>
+      new Response("rate limited", { status: 429 }),
+    );
+    const res = await GET(makeRequest(nct), makeContext(nct));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.stops).toEqual([]);
+  });
+});

@@ -15,7 +15,7 @@ These rules are **non-negotiable** and override all other guidance. TrialPath he
   - **Portuguese**: "você se qualifica", "você é elegível", "atende aos critérios".
   - **Haitian Creole**: "ou kalifye", "ou elijib".
   - **Chinese (Simplified)**: "您符合条件", "您符合资格", "您合格".
-  - (Add Vietnamese equivalents before it ships as a stretch language.)
+  - **Vietnamese** (needs review by a Vietnamese speaker — machine-drafted, not verified): "bạn đủ điều kiện" (you are eligible), "bạn đủ tiêu chuẩn" (you qualify), "bạn phù hợp" (you're a match), "bạn đáp ứng các tiêu chí" (you meet the criteria), "được bảo đảm" (guaranteed).
 - If translation adds a language, its forbidden-phrase equivalents must be added **before** that language ships.
 
 ## 2. Plain language, 8th-grade reading level
