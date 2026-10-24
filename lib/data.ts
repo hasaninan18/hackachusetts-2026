@@ -1,8 +1,8 @@
 import "server-only";
 import { headers } from "next/headers";
-import { haversineMi } from "./geo";
 import { parseOutcomes, type TrialDetailWithOutcomes } from "./outcomes";
-import { getMockTrial, mockTrials } from "./mock/data";
+import { getMockTrial } from "./mock/data";
+import { searchMockTrials } from "./mock/search";
 import type { Eligibility, Site, TrialSummary, TrialsResponse } from "./types";
 
 // Pages talk to the backend only through the HTTP contract in lib/types.ts, so Hasan's
@@ -28,30 +28,7 @@ export interface TrialQuery {
 }
 
 export async function getTrials(q: TrialQuery, mock: boolean): Promise<TrialsResponse> {
-  if (mock) {
-    const term = q.cond.toLowerCase();
-    const trials = mockTrials
-      .map((t) => ({
-        ...t,
-        distanceMi: haversineMi(q.lat, q.lon, t.nearestSite.lat, t.nearestSite.lon),
-      }))
-      .filter(
-        (t) =>
-          t.distanceMi <= q.radius &&
-          (t.conditions.some((c) => c.toLowerCase().includes(term)) ||
-            t.title.toLowerCase().includes(term)),
-      )
-      .sort((a, b) => a.distanceMi - b.distanceMi)
-      .map(({ nctId, title, conditions, phase, nearestSite, distanceMi }) => ({
-        nctId,
-        title,
-        conditions,
-        phase,
-        nearestSite,
-        distanceMi,
-      }));
-    return { trials, total: trials.length };
-  }
+  if (mock) return searchMockTrials(q);
 
   const params = new URLSearchParams({
     cond: q.cond,
