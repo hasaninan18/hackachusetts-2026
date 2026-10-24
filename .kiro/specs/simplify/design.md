@@ -168,3 +168,74 @@ cover each language.
 model output → retry then success, both-attempts-bad + fallback-bad → 503,
 converse timeout → 503, cache separation (en vs es hit independently; a second
 call with the same key does not re-invoke converse), no-caching-on-failure.
+
+## Bounded total request budget (Task 1 — hardening)
+
+`POST /api/simplify` must ALWAYS answer within a known wall-clock bound with either a
+validated body or a safe `{error}` — it must never hang. A single TOTAL budget covers the
+whole operation (study load + Bedrock primary + retry + fallback + translation), not just a
+per-call timeout.
+
+Named constants (exported from `lib/bedrock.ts`):
+
+| Constant | Value | Covers |
+| --- | --- | --- |
+| `STUDY_LOAD_BUDGET_MS` | 1500 ms | ClinicalTrials.gov study load (enforced in the route) |
+| `PER_CALL_TIMEOUT_MS` | 2000 ms | one Bedrock Converse call ceiling |
+| `BEDROCK_TOTAL_BUDGET_MS` | 7000 ms | ALL Bedrock work (English + translate) via one shared deadline |
+| `MIN_CALL_MS` | 250 ms | a call is not started if less than this remains |
+| `SERVER_TOTAL_BUDGET_MS` | 8500 ms | = `STUDY_LOAD_BUDGET_MS` + `BEDROCK_TOTAL_BUDGET_MS` |
+| `CLIENT_TIMEOUT_FLOOR_MS` | 10000 ms | minimum client abort/timeout = server total + 1500 ms margin |
+
+Budget math (each phase bounded; they sum to the total):
+
+```
+study load .................................... STUDY_LOAD_BUDGET_MS    = 1500 ms
+English:  primary + retry + fallback .......... 3 calls, each ≤ PER_CALL_TIMEOUT_MS
+translate: primary + retry + fallback ......... 3 calls, each ≤ PER_CALL_TIMEOUT_MS
+   → the SUM of all Bedrock work is capped at BEDROCK_TOTAL_BUDGET_MS = 7000 ms by a
+     single shared deadline (each call gets min(PER_CALL_TIMEOUT_MS, time-left); a call
+     is skipped once < MIN_CALL_MS remains).
+---------------------------------------------------------------------------------------
+SERVER_TOTAL_BUDGET_MS = 1500 + 7000 = 8500 ms
+```
+
+`generateSimplified` takes `budgetMs` (defaults to `BEDROCK_TOTAL_BUDGET_MS`) and an
+injectable `now` clock, builds a deadline, and bounds EVERY Converse call by it. Once the
+budget is spent the next attempt is aborted/skipped and the pipeline returns its safe error,
+so the route returns 503 within budget on a slow/hung model — proven by a mocked, fast test
+(tiny `budgetMs`/`timeoutMs`, no real waiting, no live Bedrock).
+
+### INTEGRATION REQUIREMENT — coordinate the client timeout
+
+The client abort/timeout MUST be `>= SERVER_TOTAL_BUDGET_MS` so the client never gives up
+before the server returns its safe error. The client timeout lives in
+`components/TrialPlain.tsx` (`const TIMEOUT_MS = 10_000;`), a file this spec does NOT own.
+
+- Current client value: `10_000` ms.
+- Required floor: `CLIENT_TIMEOUT_FLOOR_MS` = `10_000` ms (exported from `lib/bedrock.ts`).
+- Action: `10_000 >= 10_000` holds, so the current value is acceptable. To remove the
+  duplicated literal and keep the two in lockstep, import the constant:
+  `import { CLIENT_TIMEOUT_FLOOR_MS } from "../lib/bedrock";` and set
+  `const TIMEOUT_MS = CLIENT_TIMEOUT_FLOOR_MS;`. If the server budget is ever raised,
+  the client must not drop below it.
+
+## Translation invariants (Task 2)
+
+The validated ENGLISH JSON is the structural source of truth. `checkTranslationInvariants`
+rejects any translation that changes the number of questions, reorders them, renames an
+`id`, or alters `ruleOutIf` or `kind`. The translation step may only change human-readable
+text. A rejected translation re-enters the existing bounded retry/fallback path; if all
+attempts fail the route returns a safe 503.
+
+## source_criterion grounding + structured age bounds (Task 3)
+
+`source_criterion` stays the ORIGINAL English quoted evidence — never translated or
+paraphrased (also enforced by `checkTranslationInvariants`, which requires the translated
+`source_criterion` to equal the English one). `checkSourceCriteria` validates each quote
+against the study's eligibility criteria text (whitespace/case normalized); a fabricated or
+materially altered quote is rejected. EXPLICIT exception: a `source_criterion` derived from
+the STRUCTURED age fields (`minimumAge`/`maximumAge`) — recognized by markers like
+`minimumAge`/`maximumAge`/`structured age bounds` — is validated against those structured
+values instead of requiring a verbatim free-text match, so a legitimate age question is not
+wrongly rejected. If the study has no structured age bounds, such a citation is rejected.

@@ -411,13 +411,81 @@ export interface GenerateDeps {
   converse: Converse;
   primaryModel?: string;
   fallbackModel?: string;
+  /** Per-Bedrock-call ceiling. Still clamped by the remaining TOTAL budget below. */
   timeoutMs?: number;
+  /**
+   * Total request budget for the WHOLE operation (study load is bounded separately by
+   * the route; this covers all Bedrock work: English primary + retry + fallback, then,
+   * for non-English, the translate primary + retry + fallback). Defaults to
+   * BEDROCK_TOTAL_BUDGET_MS. Tests pass a tiny value to prove the bound.
+   */
+  budgetMs?: number;
+  /** Injectable clock so tests assert deadline behavior deterministically. */
+  now?: () => number;
 }
 export type GenerateResult =
   | { ok: true; body: SimplifyBody }
   | { ok: false; error: string };
 
-const DEFAULT_TIMEOUT_MS = 12_000;
+// ---------------------------------------------------------------------------
+// BOUNDED TOTAL REQUEST BUDGET (Task 1)
+// ---------------------------------------------------------------------------
+// POST /api/simplify must ALWAYS answer within a known wall-clock bound with either a
+// validated body or a safe {error} — it must never hang. The budget is split into named
+// phases whose per-call ceilings SUM to the total, and the orchestrator enforces a single
+// deadline: every Converse call is given min(PER_CALL_TIMEOUT_MS, time left on the
+// deadline), so once the budget is spent the next call is aborted immediately and the
+// pipeline returns its safe error.
+//
+// Budget math (each phase bounded; they sum to the total):
+//   study load (bounded in the route) ........... STUDY_LOAD_BUDGET_MS   = 1500 ms
+//   English:  primary + retry + fallback ........ 3 × PER_CALL_TIMEOUT_MS = 3 × 2000
+//   translate: primary + retry + fallback ....... 3 × PER_CALL_TIMEOUT_MS = 3 × 2000
+//   -----------------------------------------------------------------------------
+//   Bedrock work (English + translate) worst case = 6 × 2000 = 12000 ms, but the
+//   orchestrator caps the SUM of Bedrock work at BEDROCK_TOTAL_BUDGET_MS = 7000 ms via
+//   the shared deadline (a call never starts if < MIN_CALL_MS remains), so:
+//   SERVER TOTAL BUDGET = STUDY_LOAD_BUDGET_MS + BEDROCK_TOTAL_BUDGET_MS
+//                       = 1500 + 7000 = 8500 ms  (SERVER_TOTAL_BUDGET_MS).
+//
+// COORDINATION WITH THE CLIENT: the client abort/timeout MUST be >= SERVER_TOTAL_BUDGET_MS
+// so the client never gives up before the server returns its safe error. The client timeout
+// lives in components/TrialPlain.tsx (TIMEOUT_MS), a file this code does NOT own — see
+// CLIENT_TIMEOUT_FLOOR_MS below and the INTEGRATION REQUIREMENT in the report.
+/** Each single Bedrock Converse call is bounded by this ceiling. */
+export const PER_CALL_TIMEOUT_MS = 2000;
+/** Bounded wall-clock budget for ClinicalTrials.gov study load (enforced in the route). */
+export const STUDY_LOAD_BUDGET_MS = 1500;
+/** Total budget for ALL Bedrock work (English + translate, each primary+retry+fallback). */
+export const BEDROCK_TOTAL_BUDGET_MS = 7000;
+/** A call is not started if less than this remains on the deadline (avoids 0ms calls). */
+export const MIN_CALL_MS = 250;
+/**
+ * The whole-operation server budget: study load + all Bedrock work. The server always
+ * responds within this bound with a validated body or a safe error.
+ */
+export const SERVER_TOTAL_BUDGET_MS = STUDY_LOAD_BUDGET_MS + BEDROCK_TOTAL_BUDGET_MS; // 8500
+/**
+ * The MINIMUM the client abort/timeout must be set to so it never gives up before the
+ * server's safe error. Equals the server total budget plus a small network/parse margin.
+ * EXPORTED so the frontend owner can import it rather than hard-coding a second number.
+ */
+export const CLIENT_TIMEOUT_FLOOR_MS = SERVER_TOTAL_BUDGET_MS + 1500; // 10000 ms
+
+/** A monotonic-ish deadline: remaining() never goes below 0. */
+interface Deadline {
+  remaining(): number;
+  expired(): boolean;
+}
+function makeDeadline(budgetMs: number, now: () => number): Deadline {
+  const end = now() + budgetMs;
+  return {
+    remaining: () => Math.max(0, end - now()),
+    expired() {
+      return this.remaining() <= 0;
+    },
+  };
+}
 
 /** One Converse call wrapped in a bounded AbortController timeout. */
 async function converseBounded(
@@ -437,26 +505,42 @@ async function converseBounded(
 
 /**
  * Ask a model for a prompt, validate, and (on invalid/throw) retry ONCE on the primary
- * then try the fallback model ONCE. Returns the validated model or an error — bounded.
+ * then try the fallback model ONCE. Returns the validated model or an error — bounded by
+ * BOTH the per-call timeout AND the shared deadline (so the SUM of attempts cannot exceed
+ * the remaining budget). `extraValidate` runs additional structural checks on a model that
+ * already passed shape+safety (used to enforce translation invariants).
  */
 async function generateValidated(
   deps: GenerateDeps,
   prompt: Prompt,
   source: ProtectedValues,
+  deadline: Deadline,
+  extraValidate?: (model: SimplifyModel) => string | null,
 ): Promise<ValidationResult> {
   const primary = deps.primaryModel ?? process.env.BEDROCK_MODEL_ID ?? "us.amazon.nova-2-lite-v1:0";
   const fallback =
     deps.fallbackModel ?? process.env.BEDROCK_FALLBACK_MODEL_ID ?? "us.amazon.nova-pro-v1:0";
-  const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const perCall = deps.timeoutMs ?? PER_CALL_TIMEOUT_MS;
   // Bounded attempt list: primary (initial), primary (retry), fallback (once).
   const attempts: string[] = [primary, primary, fallback];
   let lastError = "no attempt made";
   for (const modelId of attempts) {
+    const left = deadline.remaining();
+    if (left < MIN_CALL_MS) {
+      return { ok: false, error: "total request budget exhausted" };
+    }
+    // Each call is bounded by the smaller of the per-call ceiling and the time left.
+    const callTimeout = Math.min(perCall, left);
     try {
-      const raw = await converseBounded(deps.converse, modelId, prompt, timeoutMs);
+      const raw = await converseBounded(deps.converse, modelId, prompt, callTimeout);
       const validated = validateModelOutput(raw, { lang: deps.lang, source });
-      if (validated.ok) return validated;
-      lastError = validated.error;
+      if (validated.ok) {
+        const extraError = extraValidate ? extraValidate(validated.value) : null;
+        if (!extraError) return validated;
+        lastError = extraError;
+      } else {
+        lastError = validated.error;
+      }
     } catch (err) {
       lastError = err instanceof Error ? err.message : "Bedrock call failed";
     }
@@ -464,12 +548,115 @@ async function generateValidated(
   return { ok: false, error: lastError };
 }
 
+// ---------------------------------------------------------------------------
+// Translation invariants (Task 2) + source_criterion validation (Task 3).
+// The English JSON is the STRUCTURAL SOURCE OF TRUTH. A translation may only change
+// human-readable text; it may NOT add/drop/reorder questions, change any id, or alter
+// ruleOutIf or kind. source_criterion must stay the ORIGINAL English quoted evidence.
+// ---------------------------------------------------------------------------
+/**
+ * Compare a translated model against the validated English model. Returns an error string
+ * if any structural invariant is violated (question set/order, ids, ruleOutIf, kind, or a
+ * translated source_criterion), or null if the translation is structurally faithful.
+ */
+export function checkTranslationInvariants(
+  english: SimplifyModel,
+  translated: SimplifyModel,
+): string | null {
+  if (translated.questions.length !== english.questions.length) {
+    return "translation changed the number of questions";
+  }
+  for (let i = 0; i < english.questions.length; i += 1) {
+    const en = english.questions[i];
+    const tr = translated.questions[i];
+    // ORDER + IDS: the i-th translated question must carry the i-th English id.
+    if (tr.id !== en.id) {
+      return `translation reordered or renamed question ${i} (expected id "${en.id}", got "${tr.id}")`;
+    }
+    if (tr.ruleOutIf !== en.ruleOutIf) {
+      return `translation altered ruleOutIf for question "${en.id}"`;
+    }
+    if (tr.kind !== en.kind) {
+      return `translation altered kind for question "${en.id}"`;
+    }
+    // source_criterion is ORIGINAL English evidence: it must NOT be translated/paraphrased.
+    if (tr.source_criterion !== en.source_criterion) {
+      return `translation changed source_criterion for question "${en.id}" (must stay the original English quote)`;
+    }
+  }
+  return null;
+}
+
+/** Normalize text for substring comparison: collapse whitespace, lower-case, trim. */
+function normalizeForQuoteMatch(s: string): string {
+  return s.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/**
+ * Markers a model may legitimately use for a source_criterion that is derived from the
+ * STRUCTURED age bounds (minimumAge/maximumAge) rather than quoted free text. When a
+ * question's source_criterion references these structured fields, it is validated against
+ * the structured values, NOT required to appear verbatim in the free-text criteria block.
+ */
+const STRUCTURED_AGE_MARKERS = [
+  "minimumage",
+  "maximumage",
+  "minimum age",
+  "maximum age",
+  "structured age",
+  "age bound",
+  "age bounds",
+];
+/** True if a source_criterion is referencing the structured age fields. */
+export function isStructuredAgeCriterion(sourceCriterion: string): boolean {
+  const n = normalizeForQuoteMatch(sourceCriterion);
+  return STRUCTURED_AGE_MARKERS.some((m) => n.includes(m));
+}
+
+/**
+ * Validate every question's source_criterion against the study's eligibility criteria.
+ * A quote must be SUBSTANTIVELY present in the criteria text (whitespace/case normalized).
+ * EXCEPTION: a source_criterion derived from the structured age bounds (minimumAge/
+ * maximumAge) is validated against those structured fields, so a legitimate age question
+ * is not rejected for lacking a verbatim free-text match. Returns an error string on the
+ * first violation, or null when all source_criterion values are grounded.
+ */
+export function checkSourceCriteria(
+  model: SimplifyModel,
+  detail: TrialDetail,
+): string | null {
+  const criteriaNorm = normalizeForQuoteMatch(detail.eligibility.criteriaText ?? "");
+  const { minAgeYears, maxAgeYears } = detail.eligibility;
+  const hasStructuredAge = minAgeYears !== null || maxAgeYears !== null;
+  for (const q of model.questions) {
+    const quote = q.source_criterion;
+    if (isStructuredAgeCriterion(quote)) {
+      // Derived from structured fields: accept only if the study actually has age bounds.
+      if (hasStructuredAge) continue;
+      return `question "${q.id}" cites structured age bounds but the study has none`;
+    }
+    const quoteNorm = normalizeForQuoteMatch(quote);
+    if (!quoteNorm) {
+      return `question "${q.id}" has an empty source_criterion`;
+    }
+    if (!criteriaNorm.includes(quoteNorm)) {
+      return `question "${q.id}" source_criterion is not present in the eligibility criteria (fabricated or altered quote)`;
+    }
+  }
+  return null;
+}
+
 /**
  * Full pipeline: generate+validate the ENGLISH structure first, then (for non-English)
- * translate that validated JSON and validate again. All steps bounded. On any
- * exhaustion, returns a safe error — never a fabricated summary.
+ * translate that validated JSON and validate again — enforcing the translation invariants
+ * against the English source of truth. Every step is bounded by a SINGLE shared deadline
+ * (SERVER_TOTAL_BUDGET_MS minus the study load the route already spent, i.e. budgetMs).
+ * On any exhaustion or failure, returns a safe error — never a fabricated summary.
  */
 export async function generateSimplified(deps: GenerateDeps): Promise<GenerateResult> {
+  const now = deps.now ?? Date.now;
+  const budgetMs = deps.budgetMs ?? BEDROCK_TOTAL_BUDGET_MS;
+  const deadline = makeDeadline(budgetMs, now);
   const source = extractProtectedValues(
     [
       deps.detail.nctId,
@@ -478,32 +665,33 @@ export async function generateSimplified(deps: GenerateDeps): Promise<GenerateRe
       ...deps.detail.contacts.map((c) => [c.name, c.phone, c.email].filter(Boolean).join(" ")),
     ].join("\n"),
   );
-
-  // 1) English first (Requirement 7.1).
+  // 1) English first (Requirement 7.1). source_criterion grounded in the criteria/age bounds.
   const english = await generateValidated(
     { ...deps, lang: "en" },
     buildEnglishPrompt(deps.detail),
     source,
+    deadline,
+    (model) => checkSourceCriteria(model, deps.detail),
   );
   if (!english.ok) return { ok: false, error: `english generation failed: ${english.error}` };
-
   if (deps.lang === "en") {
     return { ok: true, body: toResponseBody(english.value, "en") };
   }
-
-  // 2) Translate the validated English JSON (rule 14) — same bounded retry/fallback.
-  const englishJson = JSON.stringify(english.value);
+  // 2) Translate the validated English JSON (rule 14) — same bounded retry/fallback, and
+  // reject any translation that violates the structural invariants (Task 2/3).
+  const englishModel = english.value;
+  const englishJson = JSON.stringify(englishModel);
   const translated = await generateValidated(
     deps,
     buildTranslatePrompt(englishJson, deps.lang),
     source,
+    deadline,
+    (model) => checkTranslationInvariants(englishModel, model),
   );
   if (!translated.ok) return { ok: false, error: `translation failed: ${translated.error}` };
-
   return { ok: true, body: toResponseBody(translated.value, deps.lang) };
 }
 
-// ---------------------------------------------------------------------------
 // Result cache keyed by (nct, lang) — separate from the upstream cache in lib/cache.ts.
 // ---------------------------------------------------------------------------
 const resultCache = new Map<string, SimplifyBody>();

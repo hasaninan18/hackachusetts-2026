@@ -235,3 +235,109 @@ describe("caching", () => {
     expect(ok.status).toBe(200);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Translation invariants at the route (Task 2/4). English generates, the translation
+// violates a structural invariant, so the bounded retry/fallback runs and the route ends
+// in a safe 503 — never a fabricated or structurally-broken summary.
+// ---------------------------------------------------------------------------
+function goodModelObj() {
+  return JSON.parse(goodModel()) as {
+    questions: Array<{ id: string; text: string; ruleOutIf: string; source_criterion: string; kind: string }>;
+    [k: string]: unknown;
+  };
+}
+/** A faithful Spanish translation: only text changes, structure identical. */
+function faithfulTranslation() {
+  const m = goodModelObj();
+  return JSON.stringify({ ...m, questions: m.questions.map((q) => ({ ...q, text: `(es) ${q.text}` })) });
+}
+/** A translation that REORDERS the questions — must be rejected. */
+function reorderedTranslation() {
+  const m = goodModelObj();
+  const qs = m.questions.map((q) => ({ ...q, text: `(es) ${q.text}` }));
+  return JSON.stringify({ ...m, questions: [qs[1], qs[0], qs[2]] });
+}
+/** A translation that TRANSLATES source_criterion — must be rejected. */
+function translatedCriterion() {
+  const m = goodModelObj();
+  const qs = m.questions.map((q, i) => (i === 0 ? { ...q, source_criterion: "Edad 18 o mas" } : q));
+  return JSON.stringify({ ...m, questions: qs });
+}
+
+describe("translation invariants (route)", () => {
+  it("503 when the translation reorders questions, after bounded retry+fallback", async () => {
+    const nct = "NCT20000001";
+    mockFetchStudy(nct);
+    // 1 English (good) + 3 translation attempts (all reordered → rejected).
+    bedrock.queue = [goodModel(), reorderedTranslation(), reorderedTranslation(), reorderedTranslation()];
+    const res = await POST(req({ nct, lang: "es" }));
+    expect(res.status).toBe(503);
+    expect(bedrock.modelIds).toEqual(["primary-model", "primary-model", "primary-model", "fallback-model"]);
+    const body = await res.json();
+    expect(body.error).toBeTruthy();
+    expect(body.summary).toBeUndefined();
+  });
+
+  it("503 when the translation TRANSLATES source_criterion (it must stay English)", async () => {
+    const nct = "NCT20000002";
+    mockFetchStudy(nct);
+    bedrock.queue = [goodModel(), translatedCriterion(), translatedCriterion(), translatedCriterion()];
+    const res = await POST(req({ nct, lang: "es" }));
+    expect(res.status).toBe(503);
+  });
+
+  it("200 and keeps source_criterion in ENGLISH when the translation is faithful", async () => {
+    const nct = "NCT20000003";
+    mockFetchStudy(nct);
+    bedrock.queue = [goodModel(), faithfulTranslation()];
+    const res = await POST(req({ nct, lang: "es" }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.lang).toBe("es");
+    const english = goodModelObj();
+    for (const q of body.questions as Array<{ id: string; source_criterion: string }>) {
+      const en = english.questions.find((e) => e.id === q.id);
+      expect(q.source_criterion).toBe(en?.source_criterion);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// source_criterion grounding at the route (Task 3/4): a fabricated quote is rejected,
+// and a legitimate structured-age question is accepted.
+// ---------------------------------------------------------------------------
+describe("source_criterion grounding (route)", () => {
+  it("503 when a source_criterion is fabricated (not present in the criteria)", async () => {
+    const nct = "NCT20000004";
+    mockFetchStudy(nct);
+    const fabricated = goodModel({
+      questions: [
+        { id: "q1", text: "x?", ruleOutIf: "no", source_criterion: "Must own a red car", kind: "inclusion" },
+        { id: "q2", text: "diabetes?", ruleOutIf: "no", source_criterion: "Type 2 diabetes", kind: "inclusion" },
+        { id: "q3", text: "hospice?", ruleOutIf: "yes", source_criterion: "hospice care", kind: "exclusion" },
+      ],
+    });
+    bedrock.queue = [fabricated, fabricated, fabricated];
+    const res = await POST(req({ nct, lang: "en" }));
+    expect(res.status).toBe(503);
+    expect(bedrock.modelIds).toEqual(["primary-model", "primary-model", "fallback-model"]);
+  });
+
+  it("200 for a legitimate STRUCTURED-age question with no verbatim free-text match", async () => {
+    const nct = "NCT20000005";
+    mockFetchStudy(nct);
+    // minimumAge "18 Years" is structured; criteria free text has no age phrase matching this quote.
+    const structuredAge = goodModel({
+      questions: [
+        { id: "q1", text: "Are you 18 or older?", ruleOutIf: "no", source_criterion: "minimumAge = 18 years", kind: "inclusion" },
+        { id: "q2", text: "diabetes?", ruleOutIf: "no", source_criterion: "Type 2 diabetes", kind: "inclusion" },
+        { id: "q3", text: "hospice?", ruleOutIf: "yes", source_criterion: "hospice care", kind: "exclusion" },
+      ],
+    });
+    bedrock.queue = [structuredAge];
+    const res = await POST(req({ nct, lang: "en" }));
+    expect(res.status).toBe(200);
+    expect(bedrock.modelIds).toEqual(["primary-model"]);
+  });
+});
