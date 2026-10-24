@@ -4,18 +4,18 @@ Only new files under `app/api/**` and `lib/**`. Reuse Neil's `lib/types.ts` and 
 do not modify his files. Tests co-located (`lib/*.test.ts`), Vitest + fast-check. Each task
 lists the requirements it satisfies.
 
-- [ ] 1. Add response/raw types in `lib/api-types.ts`
+- [x] 1. Add response/raw types in `lib/api-types.ts`
   - Import (don't redefine) `TrialSummary`, `TrialDetail`, `TrialsResponse` from `lib/types.ts` and re-export them.
   - Add `ApiError` and the raw ClinicalTrials.gov v2 shapes covering only the requested fields: `CtgStudiesResponse`, `CtgStudy`, `CtgLocation`, `CtgContact`, `CtgEligibilityModule`, `CtgGeoPoint`.
   - _Requirements: 5.1, 5.2, 5.3_
 
-- [ ] 2. Implement the Boston geoPoint fix in `lib/facilities.ts`
+- [x] 2. Implement the Boston geoPoint fix in `lib/facilities.ts`
   - Export `BOSTON_CENTROID = { lat: 42.35843, lon: -71.05977 }` and `FACILITY_OVERRIDES` with the five DEMO_DATA "Use" coordinates + aliases (BMC, Brigham, BIDMC/Beth Israel, MGH/Massachusetts General, Boston Children's).
   - Implement `normalizeName` (lowercase, `&`→`and`, strip punctuation, collapse whitespace) and `isBostonCentroid(lat, lon)` with a small epsilon.
   - Implement pure `correctCoordinates(name, lat, lon) → { lat, lon, precision }`: non-centroid → `"facility"` with API coords; centroid + alias hit → override coords `"facility"`; centroid + no hit → centroid `"city"`; non-finite input → defensive `"city"`.
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7_
 
-- [ ] 3. Unit + property tests for `lib/facilities.ts` (`lib/facilities.test.ts`)
+- [x] 3. Unit + property tests for `lib/facilities.ts` (`lib/facilities.test.ts`)
   - Unit: each of the five aliases on a Boston-centroid site corrects to its DEMO_DATA override with precision `"facility"` (BMC → 42.3350,-71.0728; Brigham → 42.3355,-71.1067; BIDMC → 42.3396,-71.1066; MGH → 42.3625,-71.0694; Boston Children's → 42.3377,-71.1057).
   - Unit: centroid + unknown name → `"city"`; non-centroid coords → returned unchanged, `"facility"`.
   - Property (fast-check): `correctCoordinates` never throws on arbitrary strings/numbers; non-centroid coordinates are returned unchanged.

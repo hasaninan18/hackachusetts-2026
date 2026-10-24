@@ -1,0 +1,41 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "1. Add response/raw types in `lib/api-types.ts`": [
+      {
+        "executionId": "d3e89ac0-1d6f-4f6a-9fc3-f438e789dd71",
+        "chatSessionId": "sess_d342d8df-461b-448a-a2a0-cfd8fb0e1bba",
+        "timestamp": 1792857171182
+      },
+      {
+        "executionId": "d3e89ac0-1d6f-4f6a-9fc3-f438e789dd71",
+        "chatSessionId": "sess_d342d8df-461b-448a-a2a0-cfd8fb0e1bba",
+        "timestamp": 1792857344035
+      }
+    ],
+    "2. Implement the Boston geoPoint fix in `lib/facilities.ts`": [
+      {
+        "executionId": "379aab13-cd5e-496e-aa86-6768cb676f3f",
+        "chatSessionId": "sess_1f48869b-3301-457f-8176-bfb7caed13a0",
+        "timestamp": 1792857543668
+      },
+      {
+        "executionId": "379aab13-cd5e-496e-aa86-6768cb676f3f",
+        "chatSessionId": "sess_1f48869b-3301-457f-8176-bfb7caed13a0",
+        "timestamp": 1792857611851
+      }
+    ],
+    "3. Unit + property tests for `lib/facilities.ts` (`lib/facilities.test.ts`)": [
+      {
+        "executionId": "c1ddade7-01d1-4126-b9e7-55e7c909325d",
+        "chatSessionId": "sess_95335caf-ee89-4abd-aab4-704912f156ff",
+        "timestamp": 1792857691666
+      },
+      {
+        "executionId": "c1ddade7-01d1-4126-b9e7-55e7c909325d",
+        "chatSessionId": "sess_95335caf-ee89-4abd-aab4-704912f156ff",
+        "timestamp": 1792857937281
+      }
+    ]
+  }
+}
