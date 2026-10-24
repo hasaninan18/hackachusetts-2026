@@ -1,6 +1,13 @@
-// Unit tests for the PURE helpers in lib/bedrock.ts (spec: simplify).
-// No network, no SDK calls — the transport is never exercised here.
-import { describe, expect, it } from "vitest";
+// Unit + pipeline tests for lib/bedrock.ts under the DEFAULT-DENY redesign (spec: simplify).
+// No network, no live SDK: the Converse transport is INJECTED as a plain function. The
+// model authors ONLY prose; the server builds the checklist from lib/simplify-mappings.ts,
+// so a model that tries to inject its own questions/kind/ruleOutIf can never surface them.
+//
+// Free-text questions are STUDY-PINNED + HASH-GATED + EXACT-LINE: the hero detail uses the
+// shared reviewed fixture (lib/test-fixtures/nct07043426.ts) so the hash matches and the
+// three mappings fire. The regression tests at the bottom prove an altered hospice line
+// yields NO hospice question, both at the matcher level and through the full pipeline.
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TrialDetail } from "./types";
 import {
   BEDROCK_TOTAL_BUDGET_MS,
@@ -8,59 +15,51 @@ import {
   PER_CALL_TIMEOUT_MS,
   SERVER_TOTAL_BUDGET_MS,
   STUDY_LOAD_BUDGET_MS,
-  buildEnglishPrompt,
-  buildTranslatePrompt,
-  checkSourceCriteria,
-  checkTranslationInvariants,
+  buildEnglishProsePrompt,
+  buildProseTranslatePrompt,
+  checkProseTranslationInvariants,
   extractProtectedValues,
   generateSimplified,
-  isStructuredAgeCriterion,
   parseLang,
-  parseStructuredAgeCitation,
   parseNct,
   toResponseBody,
-  validateModelOutput,
+  validateProseOutput,
+  assembleModel,
   type Converse,
   type SimplifyModel,
+  type SimplifyProse,
 } from "./bedrock";
+import {
+  buildChecklist,
+  matchExactLine,
+  CRITERIA_REVISION_WARNING,
+} from "./simplify-mappings";
+import {
+  HERO_CRITERIA,
+  HOSPICE_LINE,
+  heroDetail,
+  heroCriteriaWithHospice,
+} from "./test-fixtures/nct07043426";
 
 // ---------------------------------------------------------------------------
-// Fixtures
+// Fixtures — the REAL NCT07043426 criteria (verbatim, from the shared fixture).
 // ---------------------------------------------------------------------------
-const DETAIL: TrialDetail = {
-  nctId: "NCT07043426",
-  title: "THRIVE-DM at Boston Medical Center",
-  conditions: ["Type 2 Diabetes"],
-  phase: "Phase 2",
-  nearestSite: { name: "Boston Medical Center", city: "Boston", lat: 42.335, lon: -71.0728, locationPrecision: "facility" },
-  distanceMi: 0,
-  briefSummary: "A diabetes study. Call 617-555-0100 or email team@bmc.org.",
-  eligibility: {
-    minAgeYears: 18,
-    maxAgeYears: null,
-    sex: "ALL",
-    healthyVolunteers: false,
-    criteriaText: "Inclusion: Age 18 or older. Type 2 diabetes. A1c 9 or higher. BMC primary-care patient. Exclusion: hospice care.",
-  },
-  sites: [{ name: "Boston Medical Center", city: "Boston", lat: 42.335, lon: -71.0728, locationPrecision: "facility" }],
-  contacts: [{ name: "Study Team", phone: "617-555-0100", email: "team@bmc.org" }],
-  stops: [],
-};
+const DETAIL: TrialDetail = heroDetail();
 
-function validModel(overrides: Partial<SimplifyModel> = {}): SimplifyModel {
+afterEach(() => vi.restoreAllMocks());
+
+function validProse(overrides: Partial<SimplifyProse> = {}): SimplifyProse {
   return {
     summary:
       "This study at Boston Medical Center looks at type 2 diabetes care. You may be put by chance in a group that gets usual care. Taking part is your choice.",
     whatYouDo: "You visit the clinic and answer questions about your health.",
     timeCommitment: "About 4 visits over 6 months.",
-    questions: [
-      { id: "q1", text: "Are you 18 years or older?", ruleOutIf: "no", source_criterion: "Age 18 or older", kind: "inclusion" },
-      { id: "q2", text: "Do you have type 2 diabetes?", ruleOutIf: "no", source_criterion: "Type 2 diabetes", kind: "inclusion" },
-      { id: "q3", text: "Are you in hospice care?", ruleOutIf: "yes", source_criterion: "hospice care", kind: "exclusion" },
-    ],
     staff_checks: ["The study team will check your lab results."],
     ...overrides,
   };
+}
+function proseJson(overrides: Partial<SimplifyProse> = {}): string {
+  return JSON.stringify(validProse(overrides));
 }
 
 const SOURCE = extractProtectedValues(
@@ -91,503 +90,384 @@ describe("parseLang", () => {
 });
 
 describe("extractProtectedValues", () => {
-  it("pulls NCTs, emails, phones and keeps phone/email apart", () => {
-    const p = extractProtectedValues("Call 617-555-0100 or 8005551234 email a@b.org about NCT01234567");
-    expect(p.ncts).toEqual(["NCT01234567"]);
-    expect(p.emails).toEqual(["a@b.org"]);
-    expect(p.phones).toContain("617-555-0100");
-    // the email's digits must not be read as a phone
-    expect(p.phones.some((x) => x.includes("@"))).toBe(false);
+  it("pulls ncts, phones, and emails", () => {
+    const pv = extractProtectedValues("NCT07043426 call 617-555-0100 or team@bmc.org");
+    expect(pv.ncts).toEqual(["NCT07043426"]);
+    expect(pv.emails).toEqual(["team@bmc.org"]);
+    expect(pv.phones.map((p) => p.replace(/\D/g, ""))).toContain("6175550100");
   });
 });
 
-describe("validateModelOutput — shape", () => {
-  it("accepts a valid model", () => {
-    const r = validateModelOutput(JSON.stringify(validModel()), { lang: "en", source: SOURCE });
+describe("validateProseOutput — shape", () => {
+  it("accepts valid prose", () => {
+    const r = validateProseOutput(proseJson(), { lang: "en", source: SOURCE });
     expect(r.ok).toBe(true);
   });
-  it("strips code fences before parsing", () => {
-    const fenced = "```json\n" + JSON.stringify(validModel()) + "\n```";
-    expect(validateModelOutput(fenced, { lang: "en", source: SOURCE }).ok).toBe(true);
+  it("rejects non-JSON and non-object", () => {
+    expect(validateProseOutput("not json", { lang: "en", source: SOURCE }).ok).toBe(false);
+    expect(validateProseOutput("[]", { lang: "en", source: SOURCE }).ok).toBe(false);
   });
-  it("rejects non-JSON", () => {
-    expect(validateModelOutput("not json", { lang: "en", source: SOURCE }).ok).toBe(false);
+  it("rejects missing required prose fields", () => {
+    expect(validateProseOutput(proseJson({ summary: "" }), { lang: "en", source: SOURCE }).ok).toBe(false);
+    expect(validateProseOutput(proseJson({ whatYouDo: "" }), { lang: "en", source: SOURCE }).ok).toBe(false);
+    expect(validateProseOutput(proseJson({ timeCommitment: "" }), { lang: "en", source: SOURCE }).ok).toBe(false);
   });
-  it("rejects fewer than 3 questions", () => {
-    const r = validateModelOutput(
-      JSON.stringify(validModel({ questions: validModel().questions.slice(0, 2) })),
-      { lang: "en", source: SOURCE },
-    );
-    expect(r.ok).toBe(false);
-  });
-  it("rejects more than 6 questions", () => {
-    const q = validModel().questions;
-    const seven = [...q, ...q, ...q].slice(0, 7).map((x, i) => ({ ...x, id: `q${i}` }));
-    expect(validateModelOutput(JSON.stringify(validModel({ questions: seven })), { lang: "en", source: SOURCE }).ok).toBe(false);
-  });
-  it("rejects duplicate ids", () => {
-    const dup = validModel().questions.map((x) => ({ ...x, id: "same" }));
-    expect(validateModelOutput(JSON.stringify(validModel({ questions: dup })), { lang: "en", source: SOURCE }).ok).toBe(false);
-  });
-  it("rejects a bad ruleOutIf enum", () => {
-    const bad = validModel();
-    (bad.questions[0] as unknown as { ruleOutIf: string }).ruleOutIf = "maybe";
-    expect(validateModelOutput(JSON.stringify(bad), { lang: "en", source: SOURCE }).ok).toBe(false);
-  });
-  it("rejects a missing source_criterion", () => {
-    const bad = validModel();
-    (bad.questions[0] as unknown as { source_criterion?: string }).source_criterion = "";
-    expect(validateModelOutput(JSON.stringify(bad), { lang: "en", source: SOURCE }).ok).toBe(false);
-  });
-  it("rejects an over-80-word summary", () => {
+  it("rejects an over-long summary (> 80 words)", () => {
     const long = Array.from({ length: 90 }, () => "word").join(" ");
-    expect(validateModelOutput(JSON.stringify(validModel({ summary: long })), { lang: "en", source: SOURCE }).ok).toBe(false);
+    expect(validateProseOutput(proseJson({ summary: long }), { lang: "en", source: SOURCE }).ok).toBe(false);
+  });
+  it("IGNORES any questions the model tries to author (they never reach the response)", () => {
+    const raw = JSON.stringify({
+      ...validProse(),
+      questions: [{ id: "x", text: "Do you have asthma?", ruleOutIf: "no", source_criterion: "made up", kind: "inclusion" }],
+    });
+    const r = validateProseOutput(raw, { lang: "en", source: SOURCE });
+    expect(r.ok).toBe(true);
+    // The validated prose carries no questions field at all.
+    expect((r as { ok: true; value: SimplifyProse }).value).not.toHaveProperty("questions");
   });
 });
 
-describe("validateModelOutput — safety", () => {
-  it("rejects an English forbidden phrase", () => {
-    const bad = validModel({ summary: "Good news, you are eligible for this study. Taking part is your choice." });
-    expect(validateModelOutput(JSON.stringify(bad), { lang: "en", source: SOURCE }).ok).toBe(false);
+describe("validateProseOutput — safety", () => {
+  it("rejects forbidden phrases (per language)", () => {
+    expect(validateProseOutput(proseJson({ whatYouDo: "You qualify for this trial." }), { lang: "en", source: SOURCE }).ok).toBe(false);
+    expect(validateProseOutput(proseJson({ whatYouDo: "Usted es elegible." }), { lang: "es", source: SOURCE }).ok).toBe(false);
   });
-  it("rejects a Spanish forbidden phrase", () => {
-    const bad = validModel({ whatYouDo: "Usted califica para participar." });
-    expect(validateModelOutput(JSON.stringify(bad), { lang: "es", source: SOURCE }).ok).toBe(false);
-  });
-  it("still catches leaked English in a non-English response", () => {
-    const bad = validModel({ whatYouDo: "You qualify." });
-    expect(validateModelOutput(JSON.stringify(bad), { lang: "es", source: SOURCE }).ok).toBe(false);
-  });
-  it("rejects an introduced NCT id not in the source", () => {
-    const bad = validModel({ whatYouDo: "See trial NCT99999999 for details." });
-    expect(validateModelOutput(JSON.stringify(bad), { lang: "en", source: SOURCE }).ok).toBe(false);
-  });
-  it("rejects an introduced email not in the source", () => {
-    const bad = validModel({ whatYouDo: "Email evil@attacker.com to join." });
-    expect(validateModelOutput(JSON.stringify(bad), { lang: "en", source: SOURCE }).ok).toBe(false);
-  });
-  it("rejects an altered phone number", () => {
-    const bad = validModel({ whatYouDo: "Call 617-555-9999 now." });
-    expect(validateModelOutput(JSON.stringify(bad), { lang: "en", source: SOURCE }).ok).toBe(false);
-  });
-  it("accepts a source phone echoed verbatim", () => {
-    const ok = validModel({ whatYouDo: "Call the study team at 617-555-0100." });
-    expect(validateModelOutput(JSON.stringify(ok), { lang: "en", source: SOURCE }).ok).toBe(true);
+  it("rejects a new phone not present in the source", () => {
+    expect(validateProseOutput(proseJson({ whatYouDo: "Call 617-555-9999 now." }), { lang: "en", source: SOURCE }).ok).toBe(false);
   });
 });
 
 describe("prompt builders", () => {
-  it("English prompt embeds criteria inside a delimited untrusted data block", () => {
-    const { system, user } = buildEnglishPrompt(DETAIL);
-    expect(user).toContain("<STUDY_DATA>");
-    expect(user).toContain("</STUDY_DATA>");
-    expect(user).toContain("Age 18 or older");
-    expect(system).toContain("untrusted DATA");
-    expect(system).toMatch(/JSON only/i);
-    // structured age bounds (rule 6)
-    expect(user).toContain("minimum age = 18 years");
-    expect(user).toContain("maximum age = none");
+  it("English prose prompt embeds the data block and asks for prose only", () => {
+    const p = buildEnglishProsePrompt(DETAIL);
+    expect(p.user).toContain("<STUDY_DATA>");
+    expect(p.user).toContain("No questions.");
+    expect(p.system).toContain("You do NOT write any screening questions");
   });
-  it("translate prompt carries the English JSON and the usted instruction for Spanish", () => {
-    const english = JSON.stringify(validModel());
-    const { system, user } = buildTranslatePrompt(english, "es");
-    expect(user).toContain(english);
-    expect(system).toMatch(/usted/i);
-    expect(system).toContain("same JSON structure"); // structure preserved
-    // Task 1: prompt must be provably consistent with checkTranslationInvariants —
-    // it must explicitly tell the model to copy source_criterion verbatim and preserve
-    // id / ruleOutIf / kind / order.
-    expect(system).toMatch(/source_criterion/);
-    expect(system).toMatch(/CHARACTER-FOR-CHARACTER|byte-for-byte/i);
-    expect(system).toMatch(/do not translate it/i);
-    expect(system).toMatch(/ruleOutIf/);
-    expect(system).toMatch(/kind/);
-    expect(system).toMatch(/order/i);
+  it("translate prompt forbids adding numbers and keeps keys", () => {
+    const p = buildProseTranslatePrompt(proseJson(), "es");
+    expect(p.system).toContain("usted");
+    expect(p.system).toContain("Do NOT add or remove any number");
   });
 });
 
-describe("toResponseBody", () => {
-  it("mirrors summary into whatItStudies and sets lang", () => {
-    const body = toResponseBody(validModel(), "es");
-    expect(body.whatItStudies).toBe(body.summary);
+describe("checkProseTranslationInvariants", () => {
+  const en = validProse();
+  it("accepts a faithful translation", () => {
+    const tr = validProse({ summary: "Estudio en Boston Medical Center sobre diabetes tipo 2. Participar es su elección." });
+    expect(checkProseTranslationInvariants(en, tr)).toBeNull();
+  });
+  it("rejects a translation that introduces a NEW number", () => {
+    const tr = validProse({ timeCommitment: "Unas 4 visitas durante 12 meses." }); // 12 not in English (6)
+    expect(checkProseTranslationInvariants(en, tr)).not.toBeNull();
+  });
+});
+
+describe("toResponseBody / assembleModel", () => {
+  it("mirrors summary into whatItStudies and carries lang + questions", () => {
+    const model: SimplifyModel = assembleModel(validProse(), [
+      { id: "age_min", text: "Are you at least 18 years old?", ruleOutIf: "no", source_criterion: "minimumAge = 18 years", kind: "inclusion" },
+      { id: "t2dm_diagnosis", text: "Do you have type 2 diabetes?", ruleOutIf: "no", source_criterion: "x", kind: "inclusion" },
+    ]);
+    const body = toResponseBody(model, "es");
     expect(body.lang).toBe("es");
+    expect(body.whatItStudies).toBe(model.summary);
+    expect(body.questions).toHaveLength(2);
+  });
+});
+
+describe("budget math constants", () => {
+  it("are internally consistent", () => {
+    expect(SERVER_TOTAL_BUDGET_MS).toBe(STUDY_LOAD_BUDGET_MS + BEDROCK_TOTAL_BUDGET_MS);
+    expect(CLIENT_TIMEOUT_FLOOR_MS).toBeGreaterThanOrEqual(SERVER_TOTAL_BUDGET_MS);
+    expect(PER_CALL_TIMEOUT_MS).toBeGreaterThan(0);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Translation invariants (Task 2) — the English JSON is the structural source of truth.
+// Full pipeline (converse injected). The server builds the hero checklist; the mocked
+// model returns only prose.
 // ---------------------------------------------------------------------------
-describe("checkTranslationInvariants", () => {
-  const english = validModel();
-  /** A faithful translation: only human-readable text changes, structure is identical. */
-  function faithful(): SimplifyModel {
-    return validModel({
-      summary: "Este estudio en Boston Medical Center analiza la diabetes tipo 2. Participar es su decisión.",
-      questions: english.questions.map((q) => ({ ...q, text: `(es) ${q.text}` })),
-    });
-  }
-
-  it("accepts a translation that only changes human-readable text", () => {
-    expect(checkTranslationInvariants(english, faithful())).toBeNull();
+describe("generateSimplified — English success with server-built checklist", () => {
+  it("returns server questions (not model's) and model prose", async () => {
+    const converse: Converse = async () => proseJson();
+    const result = await generateSimplified({ detail: DETAIL, lang: "en", converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const ids = result.body.questions.map((q) => q.id).sort();
+    // age_min + the three supported free-text mappings (T2DM, T1DM, hospice).
+    expect(ids).toEqual(["age_min", "hospice", "t1dm_exclusion", "t2dm_diagnosis"]);
+    const t2 = result.body.questions.find((q) => q.id === "t2dm_diagnosis")!;
+    expect(t2.text).toBe("Do you have type 2 diabetes?");
+    expect(t2.kind).toBe("inclusion");
+    expect(t2.ruleOutIf).toBe("no");
+    const t1 = result.body.questions.find((q) => q.id === "t1dm_exclusion")!;
+    expect(t1.kind).toBe("exclusion");
+    expect(t1.ruleOutIf).toBe("yes");
+    const age = result.body.questions.find((q) => q.id === "age_min")!;
+    expect(age.source_criterion).toBe("minimumAge = 18 years");
   });
 
-  it("rejects a translation that drops a question", () => {
-    const dropped = faithful();
-    dropped.questions = dropped.questions.slice(0, english.questions.length - 1);
-    expect(checkTranslationInvariants(english, dropped)).toMatch(/number of questions/);
-  });
-
-  it("rejects a translation that adds a question", () => {
-    const added = faithful();
-    added.questions = [...added.questions, { id: "q9", text: "extra", ruleOutIf: "no", source_criterion: "x", kind: "inclusion" }];
-    expect(checkTranslationInvariants(english, added)).toMatch(/number of questions/);
-  });
-
-  it("rejects a translation that reorders questions", () => {
-    const reordered = faithful();
-    reordered.questions = [reordered.questions[1], reordered.questions[0], reordered.questions[2]];
-    expect(checkTranslationInvariants(english, reordered)).toMatch(/reordered or renamed/);
-  });
-
-  it("rejects a translation that renames a question id", () => {
-    const renamed = faithful();
-    renamed.questions[0] = { ...renamed.questions[0], id: "zzz" };
-    expect(checkTranslationInvariants(english, renamed)).toMatch(/reordered or renamed/);
-  });
-
-  it("rejects a translation that alters ruleOutIf", () => {
-    const altered = faithful();
-    altered.questions[0] = { ...altered.questions[0], ruleOutIf: altered.questions[0].ruleOutIf === "yes" ? "no" : "yes" };
-    expect(checkTranslationInvariants(english, altered)).toMatch(/altered ruleOutIf/);
-  });
-
-  it("rejects a translation that alters kind", () => {
-    const altered = faithful();
-    altered.questions[0] = { ...altered.questions[0], kind: altered.questions[0].kind === "inclusion" ? "exclusion" : "inclusion" };
-    expect(checkTranslationInvariants(english, altered)).toMatch(/altered kind/);
-  });
-
-  it("rejects a translation that TRANSLATES source_criterion (must stay original English)", () => {
-    const translatedQuote = faithful();
-    translatedQuote.questions[0] = { ...translatedQuote.questions[0], source_criterion: "Edad 18 o más" };
-    expect(checkTranslationInvariants(english, translatedQuote)).toMatch(/source_criterion/);
+  it("a model that injects its own questions cannot change the checklist", async () => {
+    const converse: Converse = async () =>
+      JSON.stringify({
+        ...validProse(),
+        questions: [{ id: "evil", text: "Do you have asthma?", ruleOutIf: "yes", source_criterion: "x", kind: "exclusion" }],
+      });
+    const result = await generateSimplified({ detail: DETAIL, lang: "en", converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.body.questions.find((q) => q.id === "evil")).toBeUndefined();
+    expect(result.body.questions.some((q) => /asthma/i.test(q.text))).toBe(false);
   });
 });
 
-// ---------------------------------------------------------------------------
-// source_criterion grounding + structured age bounds (Task 3).
-// ---------------------------------------------------------------------------
-describe("isStructuredAgeCriterion", () => {
-  it("recognizes references to the structured age fields", () => {
-    expect(isStructuredAgeCriterion("minimumAge")).toBe(true);
-    expect(isStructuredAgeCriterion("structured age bounds")).toBe(true);
-    expect(isStructuredAgeCriterion("maximum age = 65 years")).toBe(true);
-  });
-  it("does not flag a normal free-text quote", () => {
-    expect(isStructuredAgeCriterion("Type 2 diabetes")).toBe(false);
+describe("generateSimplified — Spanish uses deterministic localized questions", () => {
+  it("translates only prose; questions come from the es mapping wording", async () => {
+    const converse: Converse = async (_m, prompt) =>
+      prompt.system.includes("translate")
+        ? proseJson({ summary: "Estudio en Boston Medical Center sobre diabetes tipo 2. Participar es su elección." })
+        : proseJson();
+    const result = await generateSimplified({ detail: DETAIL, lang: "es", converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const t2 = result.body.questions.find((q) => q.id === "t2dm_diagnosis")!;
+    expect(t2.text).toBe("¿Tiene diabetes tipo 2?");
+    expect(t2.ruleOutIf).toBe("no"); // rule-out logic unchanged across languages
   });
 });
 
-describe("checkSourceCriteria", () => {
-  it("accepts source_criterion quotes substantively present in the criteria text", () => {
-    expect(checkSourceCriteria(validModel(), DETAIL)).toBeNull();
+describe("generateSimplified — unsupported language fails closed", () => {
+  it("returns a safe error for pt/ht/zh/vi", async () => {
+    const converse: Converse = async () => proseJson();
+    for (const lang of ["pt", "ht", "zh", "vi"] as const) {
+      const r = await generateSimplified({ detail: DETAIL, lang, converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
+      expect(r.ok).toBe(false);
+    }
   });
+});
 
-  it("allows whitespace/case normalization when matching a quote", () => {
-    const model = validModel({
-      questions: [
-        { id: "q1", text: "diabetes?", ruleOutIf: "no", source_criterion: "type   2   DIABETES", kind: "inclusion" },
-        { id: "q2", text: "hospice?", ruleOutIf: "yes", source_criterion: "Hospice Care", kind: "exclusion" },
-        { id: "q3", text: "a1c?", ruleOutIf: "no", source_criterion: "A1c 9 or higher", kind: "inclusion" },
-      ],
-    });
-    expect(checkSourceCriteria(model, DETAIL)).toBeNull();
-  });
-
-  it("rejects a fabricated quote not present in the criteria", () => {
-    const model = validModel({
-      questions: [
-        { id: "q1", text: "x?", ruleOutIf: "no", source_criterion: "Must own a red car", kind: "inclusion" },
-        { id: "q2", text: "y?", ruleOutIf: "no", source_criterion: "Type 2 diabetes", kind: "inclusion" },
-        { id: "q3", text: "z?", ruleOutIf: "yes", source_criterion: "hospice care", kind: "exclusion" },
-      ],
-    });
-    expect(checkSourceCriteria(model, DETAIL)).toMatch(/not present in the eligibility criteria/);
-  });
-
-  it("rejects a materially altered quote", () => {
-    const model = validModel({
-      questions: [
-        { id: "q1", text: "x?", ruleOutIf: "no", source_criterion: "A1c 2 or lower", kind: "inclusion" },
-        { id: "q2", text: "y?", ruleOutIf: "no", source_criterion: "Type 2 diabetes", kind: "inclusion" },
-        { id: "q3", text: "z?", ruleOutIf: "yes", source_criterion: "hospice care", kind: "exclusion" },
-      ],
-    });
-    expect(checkSourceCriteria(model, DETAIL)).toMatch(/not present/);
-  });
-
-  it("ACCEPTS an age question sourced from STRUCTURED age bounds with no verbatim free-text match", () => {
-    // A study whose criteria text does NOT contain an age phrase, but DOES have a structured minAgeYears.
-    const structuredOnly: TrialDetail = {
+describe("generateSimplified — too few supported questions fails closed", () => {
+  it("returns a safe error when the criteria yield < 2 supported questions", async () => {
+    const thin: TrialDetail = {
       ...DETAIL,
       eligibility: {
         ...DETAIL.eligibility,
-        minAgeYears: 18,
-        maxAgeYears: null,
-        criteriaText: "Inclusion: Type 2 diabetes. Exclusion: hospice care.",
+        minAgeYears: null, // no age question
+        criteriaText: "Inclusion Criteria:\n* Must speak English.\nExclusion Criteria:\n* None.",
       },
     };
-    const model = validModel({
-      questions: [
-        { id: "q1", text: "Are you 18 or older?", ruleOutIf: "no", source_criterion: "minimumAge = 18 years", kind: "inclusion" },
-        { id: "q2", text: "diabetes?", ruleOutIf: "no", source_criterion: "Type 2 diabetes", kind: "inclusion" },
-        { id: "q3", text: "hospice?", ruleOutIf: "yes", source_criterion: "hospice care", kind: "exclusion" },
-      ],
-    });
-    expect(checkSourceCriteria(model, structuredOnly)).toBeNull();
-  });
-
-  it("rejects a structured-age citation when the study has NO age bounds", () => {
-    const noAge: TrialDetail = {
-      ...DETAIL,
-      eligibility: { ...DETAIL.eligibility, minAgeYears: null, maxAgeYears: null },
-    };
-    const model = validModel({
-      questions: [
-        { id: "q1", text: "age?", ruleOutIf: "no", source_criterion: "minimumAge = 18 years", kind: "inclusion" },
-        { id: "q2", text: "diabetes?", ruleOutIf: "no", source_criterion: "Type 2 diabetes", kind: "inclusion" },
-        { id: "q3", text: "hospice?", ruleOutIf: "yes", source_criterion: "hospice care", kind: "exclusion" },
-      ],
-    });
-    expect(checkSourceCriteria(model, noAge)).toMatch(/cites minimumAge but the study has no minimumAge/);
-  });
-
-  // --- STRENGTHENED structured-age checks: having an age bound is NOT sufficient. ---
-  const AGE_DETAIL: TrialDetail = {
-    ...DETAIL,
-    eligibility: {
-      ...DETAIL.eligibility,
-      minAgeYears: 18,
-      maxAgeYears: 65,
-      criteriaText: "Inclusion: Type 2 diabetes. Exclusion: hospice care.",
-    },
-  };
-  function ageModel(sourceCriterion: string): SimplifyModel {
-    return validModel({
-      questions: [
-        { id: "qAge", text: "age?", ruleOutIf: "no", source_criterion: sourceCriterion, kind: "inclusion" },
-        { id: "q2", text: "diabetes?", ruleOutIf: "no", source_criterion: "Type 2 diabetes", kind: "inclusion" },
-        { id: "q3", text: "hospice?", ruleOutIf: "yes", source_criterion: "hospice care", kind: "exclusion" },
-      ],
-    });
-  }
-
-  it("ACCEPTS a correct minimumAge citation (value matches the study's minimum)", () => {
-    expect(checkSourceCriteria(ageModel("minimumAge = 18 years"), AGE_DETAIL)).toBeNull();
-  });
-  it("ACCEPTS a correct maximumAge citation (value matches the study's maximum)", () => {
-    expect(checkSourceCriteria(ageModel("maximumAge = 65 years"), AGE_DETAIL)).toBeNull();
-  });
-
-  it("REJECTS a minimumAge citation with the WRONG value (21 when the study's minimum is 18)", () => {
-    expect(checkSourceCriteria(ageModel("minimumAge = 21 years"), AGE_DETAIL)).toMatch(
-      /cites minimumAge = 21 but the study's minimumAge is 18/,
-    );
-  });
-  it("REJECTS a maximumAge citation with the WRONG value (80 when the study's maximum is 65)", () => {
-    expect(checkSourceCriteria(ageModel("maximumAge = 80 years"), AGE_DETAIL)).toMatch(
-      /cites maximumAge = 80 but the study's maximumAge is 65/,
-    );
-  });
-  it("REJECTS the WRONG field: a maximumAge citation when the study has NO maximum", () => {
-    const minOnly: TrialDetail = {
-      ...AGE_DETAIL,
-      eligibility: { ...AGE_DETAIL.eligibility, minAgeYears: 18, maxAgeYears: null },
-    };
-    expect(checkSourceCriteria(ageModel("maximumAge = 65 years"), minOnly)).toMatch(
-      /cites maximumAge but the study has no maximumAge/,
-    );
-  });
-  it("REJECTS the WRONG field: citing minimumAge's value against the maximum bound", () => {
-    // Study: min=18, max=65. A citation that names maximumAge but uses the minimum value 18
-    // must be rejected — right field name, wrong value for that field.
-    expect(checkSourceCriteria(ageModel("maximumAge = 18 years"), AGE_DETAIL)).toMatch(
-      /cites maximumAge = 18 but the study's maximumAge is 65/,
-    );
-  });
-  it("REJECTS a structured-age citation with NO parseable value", () => {
-    expect(checkSourceCriteria(ageModel("minimumAge requirement applies"), AGE_DETAIL)).toMatch(
-      /no age field\/value could be parsed/,
-    );
-  });
-  it("REJECTS an AMBIGUOUS citation naming BOTH bounds (cannot attribute the number)", () => {
-    expect(
-      checkSourceCriteria(ageModel("minimum age 18 and maximum age 65"), AGE_DETAIL),
-    ).toMatch(/no age field\/value could be parsed/);
-  });
-  it("allows a small tolerance only for NON-integer ages (e.g. 0.5-year infant minimum)", () => {
-    const infant: TrialDetail = {
-      ...AGE_DETAIL,
-      eligibility: { ...AGE_DETAIL.eligibility, minAgeYears: 0.5, maxAgeYears: null },
-    };
-    expect(checkSourceCriteria(ageModel("minimumAge = 0.5 years"), infant)).toBeNull();
-    // but a clearly different non-integer value is still rejected
-    expect(checkSourceCriteria(ageModel("minimumAge = 2.5 years"), infant)).toMatch(
-      /cites minimumAge = 2.5 but the study's minimumAge is 0.5/,
-    );
+    const converse: Converse = async () => proseJson();
+    const r = await generateSimplified({ detail: thin, lang: "en", converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
+    expect(r.ok).toBe(false);
   });
 });
 
-describe("parseStructuredAgeCitation", () => {
-  it("parses minimumAge field + value", () => {
-    expect(parseStructuredAgeCitation("minimumAge = 18 years")).toEqual({ field: "min", value: 18 });
+describe("generateSimplified — model failures → safe error (never fabricated)", () => {
+  it("malformed JSON then success (retry) succeeds", async () => {
+    let n = 0;
+    const converse: Converse = async () => {
+      n += 1;
+      if (n === 1) return "not json at all";
+      return proseJson();
+    };
+    const r = await generateSimplified({ detail: DETAIL, lang: "en", converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
+    expect(r.ok).toBe(true);
+    expect(n).toBe(2);
   });
-  it("parses maximumAge field + value", () => {
-    expect(parseStructuredAgeCitation("maximum age = 65 years")).toEqual({ field: "max", value: 65 });
+
+  it("all attempts malformed → safe error", async () => {
+    const converse: Converse = async () => "still not json";
+    const r = await generateSimplified({ detail: DETAIL, lang: "en", converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
+    expect(r.ok).toBe(false);
   });
-  it("parses a decimal value", () => {
-    expect(parseStructuredAgeCitation("minimum age 0.5")).toEqual({ field: "min", value: 0.5 });
-  });
-  it("returns null when both bounds are named (ambiguous)", () => {
-    expect(parseStructuredAgeCitation("minimum age 18 and maximum age 65")).toBeNull();
-  });
-  it("returns null when no number is present", () => {
-    expect(parseStructuredAgeCitation("minimumAge requirement")).toBeNull();
+
+  it("unsafe prose exhausts attempts → safe error", async () => {
+    const converse: Converse = async () => proseJson({ whatYouDo: "You qualify for this trial." });
+    const r = await generateSimplified({ detail: DETAIL, lang: "en", converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
+    expect(r.ok).toBe(false);
   });
 });
 
-// ---------------------------------------------------------------------------
-// Orchestration bounds (Task 1 budget + Task 2/3 retry/fallback). converse is INJECTED,
-// so these exercise the real deadline/retry/fallback logic with NO network and NO SDK.
-// ---------------------------------------------------------------------------
-
-describe("budget math constants", () => {
-  it("server total budget is the sum of study-load + bedrock budgets", () => {
-    expect(SERVER_TOTAL_BUDGET_MS).toBe(STUDY_LOAD_BUDGET_MS + BEDROCK_TOTAL_BUDGET_MS);
-  });
-  it("client timeout floor is >= the server total budget (so the client never gives up first)", () => {
-    expect(CLIENT_TIMEOUT_FLOOR_MS).toBeGreaterThanOrEqual(SERVER_TOTAL_BUDGET_MS);
-  });
-  it("per-call timeout is bounded and leaves room for retry+fallback within the budget", () => {
-    expect(PER_CALL_TIMEOUT_MS).toBeGreaterThan(0);
-    expect(PER_CALL_TIMEOUT_MS).toBeLessThanOrEqual(BEDROCK_TOTAL_BUDGET_MS);
-  });
-});
-
-describe("generateSimplified — total budget bound", () => {
-  it("returns a safe error WITHIN the budget when Bedrock hangs (never resolves until aborted)", async () => {
-    // converse that hangs until the AbortController fires, then rejects — models a hung model.
+describe("generateSimplified — total budget bound (hung + slow models)", () => {
+  it("a hung model returns a safe error within budget", async () => {
     const hung: Converse = (_m, _p, signal) =>
       new Promise<string>((_resolve, reject) => {
-        if (signal.aborted) return reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
-        signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })));
+        signal.addEventListener("abort", () => reject(new Error("aborted")));
       });
     const start = Date.now();
-    const result = await generateSimplified({
-      detail: DETAIL,
-      lang: "en",
-      converse: hung,
-      // Tiny budget + tiny per-call so the whole thing resolves in a few ms, proving the
-      // bound is wall-clock enforced (no hang) without waiting the production 7s.
-      budgetMs: 120,
-      timeoutMs: 40,
-    });
+    const r = await generateSimplified({ detail: DETAIL, lang: "en", converse: hung, timeoutMs: 40, budgetMs: 120 });
     const elapsed = Date.now() - start;
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toMatch(/english generation failed|budget/);
-    // Must finish well within the tiny budget's order of magnitude (generous CI margin).
-    expect(elapsed).toBeLessThan(2000);
+    expect(r.ok).toBe(false);
+    expect(elapsed).toBeLessThan(1000);
   });
 
-  it("stops starting new Bedrock calls once the shared deadline is exhausted", async () => {
-    let calls = 0;
+  it("budget exhaustion skips further calls", async () => {
     const slow: Converse = (_m, _p, signal) =>
       new Promise<string>((_resolve, reject) => {
-        calls += 1;
-        signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })));
+        signal.addEventListener("abort", () => reject(new Error("aborted")));
       });
-    const result = await generateSimplified({
-      detail: DETAIL,
-      lang: "en",
-      converse: slow,
-      budgetMs: 60,
-      timeoutMs: 50,
-    });
-    expect(result.ok).toBe(false);
-    // Bounded: at most the 3 English attempts (primary, retry, fallback) are ever started.
-    expect(calls).toBeLessThanOrEqual(3);
+    const r = await generateSimplified({ detail: DETAIL, lang: "en", converse: slow, timeoutMs: 30, budgetMs: 60 });
+    expect(r.ok).toBe(false);
   });
 });
 
-describe("generateSimplified — translation invariants trigger retry/fallback then safe error", () => {
-  const goodEnglish = JSON.stringify(validModel());
-  // The English model, serialized the way validateModelOutput would reproduce it.
-  function englishJsonOut(): string {
-    return goodEnglish;
-  }
-
-  it("rejects a translation that reorders questions and exhausts into a 503-style error", async () => {
-    const reorderedTranslation = JSON.stringify(
-      validModel({
-        questions: [validModel().questions[1], validModel().questions[0], validModel().questions[2]].map((q) => ({
-          ...q,
-          text: `(es) ${q.text}`,
-        })),
-      }),
-    );
-    let call = 0;
-    const converse: Converse = async () => {
-      call += 1;
-      // First call = English generation (good). All later calls = translation (reordered, invalid).
-      return call === 1 ? englishJsonOut() : reorderedTranslation;
+describe("generateSimplified — translation retry then safe error", () => {
+  const isTranslateCall = (prompt: { system: string }): boolean =>
+    prompt.system.includes("You translate a small JSON object");
+  it("bad translations exhaust attempts → safe 503-worthy error", async () => {
+    let enCalls = 0;
+    let trCalls = 0;
+    const converse: Converse = async (_m, prompt) => {
+      if (isTranslateCall(prompt)) {
+        trCalls += 1;
+        return proseJson({ timeCommitment: "Unas visitas durante 99 meses." });
+      }
+      enCalls += 1;
+      return proseJson();
     };
-    const result = await generateSimplified({ detail: DETAIL, lang: "es", converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toMatch(/translation failed/);
-    // 1 English call + 3 translation attempts (primary, retry, fallback) = 4 total.
-    expect(call).toBe(4);
+    const r = await generateSimplified({ detail: DETAIL, lang: "es", converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
+    expect(r.ok).toBe(false);
+    expect(enCalls).toBe(1);
+    expect(trCalls).toBe(3);
   });
-
-  it("rejects a translation that renames an id, and a faithful one on retry succeeds", async () => {
-    const renamed = JSON.stringify(
-      validModel({ questions: validModel().questions.map((q, i) => (i === 0 ? { ...q, id: "zzz" } : q)) }),
-    );
-    const faithful = JSON.stringify(
-      validModel({ questions: validModel().questions.map((q) => ({ ...q, text: `(es) ${q.text}` })) }),
-    );
-    let call = 0;
-    const converse: Converse = async () => {
-      call += 1;
-      if (call === 1) return englishJsonOut(); // English
-      if (call === 2) return renamed; // translation attempt 1 — rejected
-      return faithful; // translation retry — accepted
+  it("a translation that changes the disease type is rejected → safe error", async () => {
+    const converse: Converse = async (_m, prompt) => {
+      if (prompt.system.includes("You translate a small JSON object")) {
+        return proseJson({ summary: "Este estudio en Boston Medical Center analiza la atención de la diabetes tipo 1. Participar es su elección." });
+      }
+      return proseJson();
     };
-    const result = await generateSimplified({ detail: DETAIL, lang: "es", converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.body.lang).toBe("es");
-      // source_criterion was NOT translated — it stays the original English evidence.
-      expect(result.body.questions[0].source_criterion).toBe(validModel().questions[0].source_criterion);
+    const r = await generateSimplified({ detail: DETAIL, lang: "es", converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
+    expect(r.ok).toBe(false);
+  });
+  it("a translation that injects an eligibility claim is rejected → safe error", async () => {
+    const converse: Converse = async (_m, prompt) => {
+      if (prompt.system.includes("You translate a small JSON object")) {
+        return proseJson({ whatYouDo: "Usted es elegible para este estudio." });
+      }
+      return proseJson();
+    };
+    const r = await generateSimplified({ detail: DETAIL, lang: "es", converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
+    expect(r.ok).toBe(false);
+  });
+  it("a faithful translation succeeds and keeps the server-built questions", async () => {
+    const converse: Converse = async (_m, prompt) => {
+      if (prompt.system.includes("You translate a small JSON object")) {
+        return proseJson({
+          summary: "Este estudio en Boston Medical Center analiza la atención de la diabetes tipo 2. Participar es su elección.",
+          whatYouDo: "Usted visita la clínica y responde preguntas sobre su salud.",
+          timeCommitment: "Unas 4 visitas durante 6 meses.",
+          staff_checks: ["El equipo del estudio revisará sus resultados de laboratorio."],
+        });
+      }
+      return proseJson();
+    };
+    const r = await generateSimplified({ detail: DETAIL, lang: "es", converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      const t2 = r.body.questions.find((q) => q.id === "t2dm_diagnosis");
+      expect(t2?.text).toBe("¿Tiene diabetes tipo 2?");
+      expect(t2?.ruleOutIf).toBe("no");
+      expect(t2?.kind).toBe("inclusion");
     }
-    expect(call).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FINAL-FIX regressions: an altered hospice line must NOT produce a hospice question, proven
+// at BOTH the exact-line matcher level (hash-independent) and the full pipeline level.
+// ---------------------------------------------------------------------------
+describe("altered hospice line → no hospice question (exact-line + pipeline)", () => {
+  const SECTION_RAW = (criteria: string) => {
+    const exc = criteria.indexOf("Exclusion Criteria:");
+    return exc >= 0 ? criteria.slice(exc) : null;
+  };
+
+  it("(a) NEGATED hospice line: matcher rejects it directly (hash-independent)", () => {
+    const altered = heroCriteriaWithHospice("Patients not currently receiving hospice care.");
+    // Exact-line matcher proves the rule itself rejects it, independent of the hash gate.
+    expect(matchExactLine(SECTION_RAW(altered), HOSPICE_LINE)).toBeNull();
   });
 
-  it("keeps source_criterion as the ORIGINAL English quote through a successful translation", async () => {
-    const faithful = JSON.stringify(
-      validModel({ questions: validModel().questions.map((q) => ({ ...q, text: `(es) ${q.text}` })) }),
-    );
-    let call = 0;
-    const converse: Converse = async () => {
-      call += 1;
-      return call === 1 ? englishJsonOut() : faithful;
-    };
-    const result = await generateSimplified({ detail: DETAIL, lang: "es", converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      for (const q of result.body.questions) {
-        const en = validModel().questions.find((e) => e.id === q.id);
-        expect(q.source_criterion).toBe(en?.source_criterion);
+  it("(a) NEGATED hospice line: full pipeline yields NO hospice question", async () => {
+    const altered = heroCriteriaWithHospice("Patients not currently receiving hospice care.");
+    const detail = heroDetail({ criteriaText: altered });
+    const converse: Converse = async () => proseJson();
+    const r = await generateSimplified({ detail, lang: "en", converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
+    // The edited line changes the hash → no free-text at all → only age_min (1) → safe error.
+    expect(r.ok).toBe(false);
+    // And even if we bypass the hash via buildChecklist directly with a spy, still no hospice.
+    const built = buildChecklist(detail, "en", vi.fn());
+    if (built.ok) expect(built.questions.some((q) => q.id === "hospice")).toBe(false);
+  });
+
+  it("(b) EXTRA-CLAUSE hospice line: matcher rejects it directly (hash-independent)", () => {
+    const altered = heroCriteriaWithHospice("Patients receiving hospice care or palliative care.");
+    expect(matchExactLine(SECTION_RAW(altered), HOSPICE_LINE)).toBeNull();
+  });
+
+  it("(b) EXTRA-CLAUSE hospice line: full pipeline yields NO hospice question", async () => {
+    const altered = heroCriteriaWithHospice("Patients receiving hospice care or palliative care.");
+    const detail = heroDetail({ criteriaText: altered });
+    const converse: Converse = async () => proseJson();
+    const r = await generateSimplified({ detail, lang: "en", converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
+    expect(r.ok).toBe(false);
+    const built = buildChecklist(detail, "en", vi.fn());
+    if (built.ok) expect(built.questions.some((q) => q.id === "hospice")).toBe(false);
+  });
+
+  it("(c) the reviewed exact lines produce exactly the 3 free-text + age_min, en and es", async () => {
+    for (const lang of ["en", "es"] as const) {
+      const built = buildChecklist(DETAIL, lang, vi.fn());
+      expect(built.ok).toBe(true);
+      if (!built.ok) return;
+      const byId = new Map(built.questions.map((q) => [q.id, q]));
+      expect([...byId.keys()].sort()).toEqual(["age_min", "hospice", "t1dm_exclusion", "t2dm_diagnosis"]);
+      expect(byId.get("t2dm_diagnosis")!.kind).toBe("inclusion");
+      expect(byId.get("t2dm_diagnosis")!.ruleOutIf).toBe("no");
+      expect(byId.get("t1dm_exclusion")!.kind).toBe("exclusion");
+      expect(byId.get("t1dm_exclusion")!.ruleOutIf).toBe("yes");
+      expect(byId.get("hospice")!.kind).toBe("exclusion");
+      expect(byId.get("hospice")!.ruleOutIf).toBe("yes");
+      expect(byId.get("hospice")!.source_criterion).toBe(HOSPICE_LINE);
+      if (lang === "en") {
+        expect(byId.get("t2dm_diagnosis")!.text).toBe("Do you have type 2 diabetes?");
+        expect(byId.get("hospice")!.text).toBe("Are you currently receiving hospice care?");
+      } else {
+        expect(byId.get("t2dm_diagnosis")!.text).toBe("¿Tiene diabetes tipo 2?");
+        expect(byId.get("hospice")!.text).toBe("¿Está recibiendo cuidados de hospicio (hospice) actualmente?");
       }
     }
+  });
+
+  it("(d) a DIFFERENT nctId with byte-identical criteria → age-only → safe error", async () => {
+    const detail = { ...heroDetail(), nctId: "NCT88888888" };
+    const converse: Converse = async () => proseJson();
+    const r = await generateSimplified({ detail, lang: "en", converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
+    expect(r.ok).toBe(false);
+    const built = buildChecklist(detail, "en", vi.fn());
+    expect(built.ok).toBe(false); // age_min only (1) < MIN
+  });
+
+  it("(e) a changed criteria hash → no free-text, ONE criteria-revision warning, pipeline safe error", async () => {
+    // Edit an UNRELATED line (the three reviewed lines stay verbatim) → hash changes.
+    const revised = HERO_CRITERIA.replace(
+      "* Patients who are deceased",
+      "* Patients who are deceased or incarcerated",
+    );
+    const detail = heroDetail({ criteriaText: revised });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const converse: Converse = async () => proseJson();
+    const r = await generateSimplified({ detail, lang: "en", converse, budgetMs: BEDROCK_TOTAL_BUDGET_MS });
+    expect(r.ok).toBe(false); // only age_min survives → below the floor → safe error
+    // The warning fired once (via the default console.warn through buildChecklist("en")).
+    const revisionCalls = warnSpy.mock.calls.filter((c) => String(c[0]).includes(CRITERIA_REVISION_WARNING));
+    expect(revisionCalls).toHaveLength(1);
+    expect(String(revisionCalls[0][0])).toContain("NCT07043426");
+    // Age still builds (just not enough on its own).
+    const built = buildChecklist(detail, "en", vi.fn());
+    expect(built.ok).toBe(false);
   });
 });

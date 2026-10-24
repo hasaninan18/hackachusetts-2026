@@ -5,9 +5,15 @@
 `POST /api/simplify` turns one recruiting Massachusetts clinical trial into a
 plain-language, multilingual "might this fit me?" payload that the frontend trial
 page renders. It reuses the existing ClinicalTrials.gov backend (`buildDetailUrl`,
-`toDetail`, the 10-minute upstream cache) to load the study, then calls Amazon
-Bedrock (Converse API, Nova 2 Lite with a Nova Pro fallback) to generate and
-translate a structured, safety-constrained result.
+`toDetail`, the upstream cache) to load the study, then produces a structured,
+safety-constrained result.
+
+This document describes the design **as redesigned** after a production incident.
+The checklist is no longer authored by the model and validated after the fact. The
+server now BUILDS the checklist from a finite registry of deterministic
+criterion-to-question mappings, and the model authors only prose. The mapping table
+and the code behavior described here are reported **as implemented at time of
+writing** (the implementation may still change).
 
 The feature is bound by two external contracts it MUST NOT change:
 
@@ -20,11 +26,85 @@ The feature is bound by two external contracts it MUST NOT change:
 The 15 prompt rules in `docs/DEMO_DATA.md` are normative for prompt construction
 and output validation.
 
+## Why the old design failed (default-allow)
+
+The previous pipeline was **default-allow**: the model authored each question
+(text, `kind`, `ruleOutIf`, `source_criterion`), and a validator accepted the
+output unless it matched a specific mistake the validator had been taught. HTTP 200,
+green mocked tests, and substring matching of a cited quote established transport,
+auth, and shape — **not semantic correctness**.
+
+### Production incident (rolled back)
+
+PR18 reached production (deployment `dpl_yUEMKme13fudtLx3wPqSykXdUdU8`) and returned
+HTTP 200 for the hero trial NCT07043426 in English (~2.93s) and Spanish (~5.25s). The
+returned English checklist was semantically wrong:
+
+- A **type-2 question cited a type-1 exclusion**: `text: "Do you have type 2
+  diabetes?"`, `kind: exclusion`, `ruleOutIf: yes`, `source_criterion: "Patients
+  with Type 1 Diabetes Mellitus (T1DM)."` Answering **Yes** to type 2 diabetes
+  therefore triggered a rule-out based on a **type 1** exclusion. Spanish preserved
+  the same mistaken rule and evidence.
+- The **age question cited diagnosis text**: "Are you at least 18 years old?" cited
+  the diabetes-diagnosis inclusion paragraph, not the structured age bounds.
+- **Complex Care Management (CCM) enrollment was asked as a question**, despite the
+  prompt rules directing administrative/staff-judged items to `staff_checks`.
+
+Production was rolled back to the prior deployment without `/api/simplify`
+(`dpl_9aukErpweSPJAsy8rzwEhxmsXZjW`). The substring-match and translation validators
+did not detect the meaning mismatch.
+
+### Three review probes the default-allow validator accepted
+
+A separate review demonstrated three bypasses the old validator passed:
+
+1. **Unrelated subject**: "Do you have asthma?" cited to T2DM evidence — the
+   validator never required the question subject to equal the evidence subject
+   outside a known family.
+2. **Negated question**: "Do you NOT have type 2 diabetes?" kept the positive rule
+   (`kind: inclusion`, `ruleOutIf: no`) — the negation flipped the meaning but
+   nothing flipped or checked the rule.
+3. **Wrong age polarity**: "Are you at least 18 years old?" cited `minimumAge` with
+   `kind: exclusion`, `ruleOutIf: yes` — the age path checked field and value but
+   never age polarity.
+
+These three probes are preserved permanently as fail-closed acceptance tests
+(`lib/review-semantic-bypass.test.ts`); the three production mistakes are preserved
+as regression fixtures.
+
+## The new design (default-deny, server-built checklist)
+
+The fix is a design change, not more keyword checks:
+
+- A **finite registry** of deterministic criterion-to-question mappings
+  (`lib/simplify-mappings.ts`).
+- The **server constructs** each question's `text`, `kind`, `ruleOutIf`, and
+  `source_criterion` from verified registry facts. The model does not author
+  checklist logic; any model-proposed ids or facts are verified against the
+  registry, never trusted.
+- **Default-deny**: unknown subjects, unsupported wording, ambiguous evidence,
+  compound or negated criteria without a mapping, and missing or ambiguous headings
+  are REJECTED. Missing/ambiguous headings never default to inclusion.
+- **Age** is built only from the structured `minAgeYears` / `maxAgeYears` fields.
+  Missing, conflicting (`min > max`), or non-finite bounds produce no age question,
+  and nothing is inferred from free text.
+- **Type 1 and type 2** are distinct mappings; a line carrying a confusable sibling
+  fact fails closed.
+- **Staff-only** criteria (CCM enrollment, deceased, consent ability, opted-out,
+  investigator judgment, record-only lab cutoffs) never become questions.
+- **Deterministic localized wording** for `en` and `es` (Spanish `usted` register).
+  Model translation is limited to prose that is still safety- and
+  identifier-checked and cannot change disease type, negation, numbers, or age
+  direction.
+- `MIN_SUPPORTED_QUESTIONS` and unsupported languages/studies return a **safe
+  error** compatible with the cautious frontend fallback (PR #16).
+
 ## Ownership / non-goals
 
-- This spec owns only: `lib/bedrock.ts`, new simplify-specific helpers/tests,
-  `app/api/simplify/route.ts` and its tests, `.kiro/specs/simplify/**`, and an
-  exact-pinned SDK dependency in `package.json`.
+- This spec owns only: `lib/bedrock.ts`, `lib/bedrock-types.ts`, `lib/bedrock-age.ts`,
+  `lib/simplify-mappings.ts`, `lib/simplify-semantics.ts`, `lib/simplify-budget.ts`,
+  their tests, `app/api/simplify/route.ts` and its tests, `.kiro/specs/simplify/**`,
+  and an exact-pinned SDK dependency in `package.json`.
 - It does NOT edit `lib/simplify.ts`, `lib/types.ts`, frontend files, MBTA files,
   or the trial routes. A required change to any of those is an INTEGRATION
   REQUIREMENT reported upward, not made here.
@@ -32,10 +112,12 @@ and output validation.
 ## Requirements
 
 ### Requirement 1 — Request validation
+
 **User story:** As the frontend, I POST `{nct, lang}` and get a clear, safe error
 for anything invalid, so I never render a bad payload.
 
 #### Acceptance Criteria
+
 1. WHEN the body is not JSON, or is not an object, THE SYSTEM SHALL respond `400`
    with `{error}`.
 2. WHEN `nct` is missing or does not match `^NCT\d{8}$` (case-insensitive,
@@ -47,10 +129,12 @@ for anything invalid, so I never render a bad payload.
    output, and obey the `{error}` shape the frontend already handles.
 
 ### Requirement 2 — Load study through existing backend, reuse cache
+
 **User story:** As an operator, study loading reuses the upstream cache so the demo
 is fast and cheap.
 
 #### Acceptance Criteria
+
 1. THE SYSTEM SHALL load the study via `buildDetailUrl(nct)` + `cachedFetchJson`
    keyed by the NCT ID, the same key the detail route uses, so a warm upstream
    entry is reused with no new network call.
@@ -62,121 +146,233 @@ is fast and cheap.
    respond with a safe error (`504` timeout / `502` otherwise), never a fabricated
    summary.
 
-### Requirement 3 — Bedrock Converse invocation
-**User story:** As the product, the plain-language text comes from Amazon Bedrock
-Nova using the team's bearer-token credentials.
+### Requirement 3 — Server-built deterministic checklist (default-deny)
+
+**User story:** As a patient, the yes/no checklist reflects the trial's real
+criteria — not whatever the model chose to write — so a wrong answer never rules me
+in or out for the wrong reason.
 
 #### Acceptance Criteria
-1. THE SYSTEM SHALL call Bedrock via `@aws-sdk/client-bedrock-runtime`
+
+1. THE SYSTEM SHALL construct every question's `text`, `kind`, `ruleOutIf`, and
+   `source_criterion` from a supported mapping in the finite registry
+   (`lib/simplify-mappings.ts`), never from model output.
+2. THE SYSTEM SHALL extract `source_criterion` VERBATIM from the study's registry
+   text (free-text mappings) or format it from the structured bounds (age
+   mappings) — never copy the model's quote.
+3. A free-text mapping SHALL match only inside the section it declares
+   (inclusion/exclusion), and only when that section is unambiguously delimited by
+   exactly one explicit heading. WHEN headings are missing, duplicated, or ordered
+   ambiguously, the section is null and dependent mappings fail closed. Missing or
+   ambiguous headings SHALL NOT default to inclusion.
+4. Type-1 and type-2 criteria SHALL be distinct mappings; a matched line that also
+   carries a confusable sibling fact SHALL be skipped (fail closed).
+5. WHEN a subject is unknown, wording is unsupported, evidence is ambiguous, or a
+   criterion is compound/negated without a mapping, THE SYSTEM SHALL produce no
+   question for it (fail closed).
+6. WHEN fewer than `MIN_SUPPORTED_QUESTIONS` (currently 2) questions can be
+   constructed, THE SYSTEM SHALL return a safe error rather than a thin, reassuring
+   list.
+
+### Requirement 4 — Age from structured bounds only
+
+**User story:** As a patient, the age question reflects the trial's real age limits
+and asks them the right way round.
+
+#### Acceptance Criteria
+
+1. Age questions SHALL be built ONLY from the structured `minAgeYears` /
+   `maxAgeYears` fields; nothing SHALL be inferred from free-text criteria.
+2. A usable bound SHALL be finite and within `[0, 150]`. A missing or non-finite
+   bound SHALL produce no question for that bound.
+3. WHEN `minAgeYears > maxAgeYears` (conflicting bounds), THE SYSTEM SHALL emit no
+   age question at all.
+4. Every age question SHALL have `kind: "inclusion"` and `ruleOutIf: "no"` (being
+   outside the allowed range rules you out), and SHALL cite the structured bound
+   (`minimumAge`/`maximumAge = N years`), verified against the study's actual value.
+
+### Requirement 5 — Model authors prose only; shape + safety validation
+
+**User story:** As the product, the plain-language prose comes from Amazon Bedrock
+Nova, but the checklist does not.
+
+#### Acceptance Criteria
+
+1. THE SYSTEM SHALL ask the model for ONLY the prose fields (`summary`,
+   `whatYouDo`, `timeCommitment`, `staff_checks`). It SHALL NOT ask the model to
+   author questions, `ruleOutIf`, `kind`, or `source_criterion`.
+2. THE SYSTEM SHALL call Bedrock via `@aws-sdk/client-bedrock-runtime`
    `ConverseCommand`, region from `AWS_REGION`, primary model from
    `BEDROCK_MODEL_ID` (expected `us.amazon.nova-2-lite-v1:0`), fallback from
    `BEDROCK_FALLBACK_MODEL_ID` (expected `us.amazon.nova-pro-v1:0`).
-2. Auth SHALL be the bearer token the SDK auto-reads from `AWS_BEARER_TOKEN_BEDROCK`
-   (signingName `bedrock`). The code SHALL NOT read, log, or embed the token value.
-3. THE SYSTEM SHALL NEVER print, log, or commit secrets, and SHALL NEVER commit
-   `.env.local`.
-4. Upstream study text SHALL be passed as DATA, never as instructions
-   (prompt-injection safe): it is placed in a clearly delimited data block and the
-   system prompt tells the model to treat it as untrusted content.
+3. Auth SHALL be the bearer token the SDK auto-reads from
+   `AWS_BEARER_TOKEN_BEDROCK` (signingName `bedrock`). The code SHALL NOT read, log,
+   or embed the token value, and SHALL NEVER commit `.env.local`.
+4. Upstream study text SHALL be passed as DATA inside a delimited, injection-safe
+   block, never as instructions.
+5. THE SYSTEM SHALL validate prose for SHAPE (required string fields) and SAFETY:
+   forbidden phrases per language (rule 3), summary ≤ 80 words (rule 11), and
+   preserved identifiers — no NCT id, phone, or email that is not in the source.
 
-### Requirement 4 — Frontend contract fidelity
+### Requirement 6 — Deterministic localized wording; bounded prose translation
+
+**User story:** As a Spanish-speaking patient, I get the SAME checklist as English,
+in faithful `usted`-register Spanish, with no translation able to flip the meaning.
+
+#### Acceptance Criteria
+
+1. Question wording SHALL come from handwritten, reviewed strings in the registry
+   for the supported wording languages (`QUESTION_WORDING_LANGS = ["en", "es"]`).
+2. WHEN the requested language has no deterministic wording (`pt, ht, zh, vi`), THE
+   SYSTEM SHALL fail closed for the checklist and return a safe error.
+3. For a supported non-English language, THE SYSTEM SHALL localize questions from
+   the mapping's OWN wording and SHALL translate only the PROSE via the model.
+4. A translated prose object SHALL be rejected if it introduces a number not in the
+   English prose (`checkProseTranslationInvariants`). Translation SHALL NOT change
+   disease type, negation, numbers, or age direction (the checklist it cannot
+   touch; the prose it is number- and safety-checked).
+
+### Requirement 7 — Semantic backstop (defense in depth)
+
+**User story:** As an operator, even the server's own construction is re-verified
+against the registry and the study's real facts before it ships.
+
+#### Acceptance Criteria
+
+1. `checkQuestionSemantics` SHALL verify each server-built question against the
+   registry: a known mapping id; free-text `text` equal to the mapping wording for
+   the language; `kind`/`ruleOutIf` equal to the mapping's fixed values; evidence
+   present in the declared section; subject not mismatched; subject/evidence not
+   staff-only; text not negated.
+2. For age questions it SHALL verify `kind: "inclusion"`, `ruleOutIf: "no"`, a
+   parseable age subject, a structured-age citation whose field and value match the
+   study's actual bound.
+3. WHEN any question disagrees, THE SYSTEM SHALL reject the whole model with a safe
+   error (fail closed). This layer is expected never to fire in normal operation.
+
+### Requirement 8 — Frontend contract fidelity
+
 **User story:** As the frontend, the success body parses cleanly through
 `parseSimplified`.
 
 #### Acceptance Criteria
+
 1. The success body SHALL include the fields `parseSimplified` requires:
-   `whatItStudies` (or `summary`), `whatYouDo` (string), and
-   `questions: [{id, text, ruleOutIf: "yes"|"no"}]` with 3–6 unique-id questions,
-   plus `timeCommitment` and `lang`.
+   `whatItStudies` (mirrors `summary`), `whatYouDo` (string), and
+   `questions: [{id, text, ruleOutIf: "yes"|"no"}]` with unique ids, plus
+   `timeCommitment` and `lang`.
 2. THE SYSTEM SHALL return `lang` equal to the requested language.
-3. Any additional rule-driven fields (e.g. `source_criterion`, `staff_checks`)
-   MAY be included for richness but SHALL NOT break the parser; the three required
-   shapes above are the contract.
+3. Additional rule-driven fields (`source_criterion`, `kind`, `staff_checks`) MAY
+   be included and SHALL NOT break the parser.
 4. IF implementing the contract would require editing `lib/simplify.ts` or
    `lib/types.ts`, the work SHALL stop and report an INTEGRATION REQUIREMENT
    instead of editing those files.
 
-### Requirement 5 — The 15 prompt rules (DEMO_DATA.md)
-**User story:** As a patient, the output is safe, plain, and faithful.
+### Requirement 9 — Never claim eligibility; preserve protected values
 
-#### Acceptance Criteria (each maps to a DEMO_DATA rule)
-1. JSON only, no markdown; the app renders it. (rule 1)
-2. 6th–8th grade; summary ≤ 80 words; questions ≤ 20 words; medical terms defined
-   in parentheses on first use. (rules 2, 11)
-3. Forbidden words never appear: eligible, qualify, qualified, accepted, approved,
-   guaranteed, cure, free treatment (and per-language equivalents from
-   `safety.md`). (rule 3, Requirement 6)
-4. One fact per question; never join two conditions with "and"/"or". (rule 4)
-5. Every question maps to a quoted `source_criterion` taken from the criteria
-   text; no invented time words or thresholds. (rule 5)
-6. Always include an age question built from the structured `minAgeYears` /
-   `maxAgeYears`, and a site-patient question when criteria require being a clinic
-   patient. (rule 6)
-7. At least one patient-answerable exclusion question when one exists;
-   administrative / staff-judged / not-self-knowable items go to `staff_checks`,
-   never asked. (rule 7)
-8. Sensitive topics (pregnancy, mental-health scores, weight/BMI, substance use,
-   HIV) are gently worded or moved to `staff_checks`. (rule 8)
-9. Questionnaire scores (PHQ-9, GAD-7) are never turned into a self-scored quiz.
-   (rule 9)
-10. Numbers most people don't know (A1c, eGFR, pack-years) are phrased so
-    "I'm not sure" is natural. (rule 10)
-11. Summary names the hospital and says what participants do; if randomized,
-    include the usual-care sentence; always include "Taking part is your choice."
-    (rule 11)
-12. Registry logic is restated faithfully, never "corrected." (rule 12)
-13. Proxy mode: child/caregiver criteria address the caregiver and add a
-    caregiver-age question. (rule 13)
-14. Spanish (and other non-English): neutral Latin-American, **usted** register,
-    SAME JSON structure, translated FROM the validated English JSON (not
-    re-summarized). (rule 14)
-15. 3–6 questions, ordered most- to least-likely to rule out. (rule 15)
-
-### Requirement 6 — Never claim eligibility; preserve protected values
 #### Acceptance Criteria
-1. The output SHALL never state or imply the user is eligible/qualifies/matches/
-   is accepted. Validation SHALL reject output containing any forbidden phrase in
-   any supported language.
+
+1. The output SHALL never state or imply the user is eligible/qualifies/matches/is
+   accepted. Validation SHALL reject prose containing any forbidden phrase in any
+   supported language.
 2. NCT IDs, phone numbers, and email addresses present in the source SHALL appear
    in the output byte-for-byte unchanged, or not at all — never reformatted or
    translated.
 
-### Requirement 7 — English-first generation, shape + safety validation, bounded retry
-#### Acceptance Criteria
-1. THE SYSTEM SHALL generate and validate the English structured output FIRST,
-   then translate that structure for non-English requests.
-2. Validation SHALL check SHAPE (required fields, 3–6 questions, unique ids,
-   `ruleOutIf` enum) AND SAFETY (forbidden phrases, summary word count, preserved
-   identifiers) — not merely JSON syntax.
-3. WHEN validation fails, THE SYSTEM SHALL retry at most once with a bounded
-   request; a second failure SHALL fall through to Requirement 8.
+### Requirement 10 — Bounded timeouts, controlled fallback, safe failure
 
-### Requirement 8 — Bounded timeouts, controlled fallback, safe failure
 #### Acceptance Criteria
-1. Every Bedrock call SHALL have a bounded timeout (AbortController).
-2. WHEN the primary model fails or times out, THE SYSTEM SHALL try the fallback
-   model at most once; the fallback is NOT invoked an unbounded number of times.
-3. WHEN all attempts fail, THE SYSTEM SHALL return a safe error compatible with
-   the frontend's structured-check fallback (a `{error}` body with a non-2xx
-   status) — NEVER a fabricated summary or reassuring checklist.
 
-### Requirement 9 — Cache successful results by (NCT id, lang)
+1. Every Bedrock call SHALL have a bounded per-call timeout (`PER_CALL_TIMEOUT_MS`)
+   AND be bounded by a single shared deadline covering all Bedrock work
+   (`BEDROCK_TOTAL_BUDGET_MS`). A call SHALL NOT start when less than `MIN_CALL_MS`
+   remains.
+2. The prose step SHALL retry at most once on the primary model and try the
+   fallback model at most once; no unbounded loops.
+3. WHEN all attempts fail, or the checklist cannot be built, THE SYSTEM SHALL return
+   a safe error (non-2xx `{error}` body) compatible with the frontend's
+   structured-check fallback — NEVER a fabricated summary or reassuring checklist.
+4. The client abort/timeout SHALL be `>= SERVER_TOTAL_BUDGET_MS`
+   (`CLIENT_TIMEOUT_FLOOR_MS`), so the client never gives up before the server's
+   safe error.
+
+### Requirement 11 — Cache successful results by (NCT id, lang)
+
 #### Acceptance Criteria
+
 1. THE SYSTEM SHALL cache a successful, validated result keyed by `(nctId, lang)`.
 2. Different languages for the same NCT SHALL be cached separately.
 3. THE SYSTEM SHALL NOT cache invalid output, errors, or fallback failures.
 
-### Requirement 10 — Explicit pre-warm path, build/test safe
+### Requirement 12 — SDK-free client boundary
+
 #### Acceptance Criteria
+
+1. `lib/bedrock.ts` SHALL be the ONLY module importing `@aws-sdk/*`. Budget
+   constants the client needs SHALL live in `lib/simplify-budget.ts` (SDK-free).
+2. Client components SHALL import `CLIENT_TIMEOUT_FLOOR_MS` from
+   `lib/simplify-budget.ts` and SHALL NOT import `lib/bedrock` or any `@aws-sdk`
+   module.
+
+### Requirement 13 — Explicit pre-warm path, build/test safe
+
+#### Acceptance Criteria
+
 1. THE SYSTEM SHALL expose an explicit pre-warm function for the demo trials and
    languages from `docs/DEMO_DATA.md`.
 2. Pre-warm SHALL NOT run automatically at import/build time and SHALL NOT be
-   invoked by the automated test suite; it only runs when explicitly called
-   (e.g. a script or an authenticated runtime call).
+   invoked by the automated test suite; it only runs when explicitly called.
 
-### Requirement 11 — Tests (all mocked)
+### Requirement 14 — Tests (all mocked)
+
 #### Acceptance Criteria
-1. Focused tests SHALL cover: request validation, successful response,
-   malformed/unsafe model output, retry + fallback limits, timeout behavior, cache
-   separation by language, and preservation of protected identifiers/contacts.
-2. Bedrock SHALL be mocked in every automated test; the suite makes NO live calls.
+
+1. Focused tests SHALL cover: request validation; successful response; the
+   server-built checklist (mapping selection, type-1/type-2 distinctness, section
+   splitting, staff-only exclusion, `MIN_SUPPORTED_QUESTIONS` floor); structured-age
+   construction; the semantic backstop; prose safety/translation invariants; retry
+   and fallback limits; timeout/budget behavior; cache separation by language;
+   identifier preservation.
+2. The three review probes (`lib/review-semantic-bypass.test.ts`) and the production
+   regressions (type-2-cites-type-1, age-cites-diagnosis, CCM-as-question) SHALL be
+   permanent tests that fail closed.
+3. Bedrock SHALL be mocked in every automated test; the suite makes NO live calls.
+
+## Preserved guarantees
+
+These hold unchanged from before the redesign:
+
+- **Rule-11 summaries**: the prose summary names the hospital/site, says what
+  participants do, includes the usual-care sentence when randomized, and always
+  includes "Taking part is your choice." Summary ≤ 80 words.
+- **Identifier integrity**: NCT ids, phones, and emails are preserved byte-for-byte
+  and never introduced if absent from the source.
+- **Bounded retries and a shared deadline** with named budget constants
+  (`PER_CALL_TIMEOUT_MS`, `STUDY_LOAD_BUDGET_MS`, `BEDROCK_TOTAL_BUDGET_MS`,
+  `MIN_CALL_MS`, `SERVER_TOTAL_BUDGET_MS`, `CLIENT_TIMEOUT_FLOOR_MS`).
+- **Success-only caching** per `(nct, lang)`; invalid/failed results are never
+  cached.
+- **SDK-free client boundary**: `lib/simplify-budget.ts` carries the client
+  constants; no client import of `lib/bedrock` or `@aws-sdk`.
+
+## Limitations
+
+This feature is **NOT general semantic validation across arbitrary studies**. It is
+a scoped, fail-closed system:
+
+- It is scoped to **NCT07043426** (the hero trial, THRIVE-DM at BMC) and whatever
+  mappings exist in `lib/simplify-mappings.ts`. The supported free-text mappings at
+  time of writing are T2DM diagnosis (inclusion), T1DM (exclusion), and hospice care
+  (exclusion), plus the two structured-age mappings.
+- **Languages that fail closed for the checklist**: `pt`, `ht`, `zh`, `vi`. Only
+  `en` and `es` have reviewed deterministic question wording; other languages return
+  a safe error rather than a machine-translated checklist.
+- **Other studies fail closed** unless enough supported mappings apply to reach
+  `MIN_SUPPORTED_QUESTIONS`. A study whose criteria use no explicit
+  inclusion/exclusion headings, or whose supported facts are too few, returns a safe
+  error and the frontend falls back.
+- **Future expansion requires**, per added criterion or study: per-mapping clinical
+  review; localized wording review for each supported language; more registry fact
+  matchers; and clinician/editor sign-off before shipping. Adding a language's
+  checklist wording requires its forbidden-phrase equivalents and a reviewed
+  translation of every question first.
