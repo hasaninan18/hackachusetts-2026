@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
@@ -56,7 +57,10 @@ async function Results({
   if (!cond || !Number.isFinite(lat) || !Number.isFinite(lon)) {
     return (
       <p>
-        <Link href={`/${lang}`} className="font-semibold text-primary underline">
+        <Link
+          href={`/${lang}${mock ? "?mock=1" : ""}`}
+          className="inline-flex min-h-12 items-center font-semibold text-primary underline"
+        >
           {t("nav.newSearch")}
         </Link>
       </p>
@@ -105,7 +109,7 @@ async function Results({
             </Link>
           )}
           <Link
-            href={`/${lang}${mock ? "?mock=1" : ""}`}
+            href={`/${lang}?${new URLSearchParams({ cond, radius: String(radius), ...(mock ? { mock: "1" } : {}) })}`}
             className="inline-flex min-h-12 items-center font-semibold text-primary underline"
           >
             {t("nav.newSearch")}
@@ -116,10 +120,22 @@ async function Results({
   }
 
   const n = data.trials.length;
+  const change = new URLSearchParams({ cond, radius: String(radius) });
+  if (mock) change.set("mock", "1");
   return (
     <div>
-      <p role="status" className="font-semibold">
-        {n === 1 ? t("results.countOne", { mi: radius }) : t("results.count", { n, mi: radius })}
+      <p className="flex flex-wrap items-center gap-x-4">
+        <span role="status" className="font-semibold">
+          {n === 1
+            ? t("results.countOne", { cond, mi: radius })
+            : t("results.count", { n, cond, mi: radius })}
+        </span>
+        <Link
+          href={`/${lang}?${change}`}
+          className="inline-flex min-h-11 items-center font-semibold text-primary underline"
+        >
+          {t("results.changeSearch")}
+        </Link>
       </p>
       {lang !== "en" && <p className="mt-1 text-sm text-muted">{t("results.englishNote")}</p>}
       <ol className="mt-4 border-t border-line">
@@ -129,13 +145,22 @@ async function Results({
             trial={trial}
             lang={lang}
             dict={dict}
-            from={{ lat, lon }}
+            search={{ cond, lat, lon, radius }}
             mock={mock}
           />
         ))}
       </ol>
     </div>
   );
+}
+
+// Static per language: reading searchParams here would defer metadata to request time.
+export async function generateMetadata({
+  params,
+}: PageProps<"/[lang]/results">): Promise<Metadata> {
+  const { lang } = await params;
+  if (!isLang(lang)) return {};
+  return { title: translator(getDictionary(lang))("results.heading") };
 }
 
 export default async function ResultsPage({

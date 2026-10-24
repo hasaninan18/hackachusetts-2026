@@ -22,10 +22,15 @@ const notoSc = Noto_Sans_SC({
   preload: false,
 });
 
-export const metadata: Metadata = {
-  title: "TrialPath MA",
-  description: "Find a recruiting clinical study in Massachusetts, in plain language, and how to get there by the T.",
-};
+export async function generateMetadata({ params }: LayoutProps<"/[lang]">): Promise<Metadata> {
+  const { lang } = await params;
+  const l = isLang(lang) ? lang : "en";
+  const t = translator(getDictionary(l));
+  return {
+    title: { default: "TrialPath MA", template: "%s · TrialPath MA" },
+    description: t("meta.description"),
+  };
+}
 
 export async function generateStaticParams() {
   return LANGS.map((lang) => ({ lang }));
@@ -46,11 +51,14 @@ export default async function RootLayout({ children, params }: LayoutProps<"/[la
           {t("skip")}
         </a>
         <header className="no-print border-b border-line bg-card">
-          <div className="mx-auto flex max-w-[640px] items-center justify-between gap-4 px-4 py-3">
-            <a href={`/${lang}`} className="text-lg font-bold text-ink no-underline">
+          <div className="mx-auto max-w-[640px] px-4 py-2">
+            <a
+              href={`/${lang}`}
+              className="inline-flex min-h-11 items-center text-lg font-bold text-ink no-underline"
+            >
               {t("app.name")}
             </a>
-            <Suspense fallback={<div className="h-11 w-36" />}>
+            <Suspense fallback={<div className="h-11" />}>
               <LanguagePicker lang={lang} label={t("lang.label")} />
             </Suspense>
           </div>

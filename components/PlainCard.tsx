@@ -15,12 +15,39 @@ export function PlainCard({
   briefSummary: string;
   t: Translate;
 }) {
+  // Always mounted (same position in the tree for every state) so screen readers hear the
+  // text change from "loading" to empty or "unavailable" instead of a region appearing.
+  const status =
+    state.status === "loading"
+      ? t("trial.plainLoading")
+      : state.status === "failed"
+        ? t("trial.plainUnavailable")
+        : "";
+
+  return (
+    <>
+      <p role="status" className="sr-only">
+        {status}
+      </p>
+      <PlainBody state={state} lang={lang} briefSummary={briefSummary} t={t} />
+    </>
+  );
+}
+
+function PlainBody({
+  state,
+  lang,
+  briefSummary,
+  t,
+}: {
+  state: SimplifyState;
+  lang: Lang;
+  briefSummary: string;
+  t: Translate;
+}) {
   if (state.status === "loading") {
     return (
       <section className="mt-6 border-t border-line pt-6" aria-busy="true">
-        <p role="status" className="sr-only">
-          {t("trial.plainLoading")}
-        </p>
         {[0, 1, 2].map((i) => (
           <div key={i} className={i > 0 ? "mt-6" : undefined} aria-hidden="true">
             <div className="skeleton h-6 w-1/2" />
@@ -37,7 +64,9 @@ export function PlainCard({
     return (
       <section className="mt-6 border-t border-line pt-6">
         <h2 className="text-xl font-semibold text-ink">{t("trial.what")}</h2>
-        <p className="mt-2 text-sm text-muted">{t("trial.plainUnavailable")}</p>
+        <p className="mt-2 text-sm text-muted">
+          {t("trial.plainUnavailable")}
+        </p>
         <p className="mt-3 whitespace-pre-line text-ink" lang="en">
           {briefSummary}
         </p>

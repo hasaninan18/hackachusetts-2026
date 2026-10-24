@@ -7,9 +7,12 @@ function pickLang(header: string | null): Lang {
   const ranked = header
     .split(",")
     .map((part) => {
-      const [tag, q] = part.trim().split(";q=");
-      return { base: tag.toLowerCase().split("-")[0], q: q ? Number(q) : 1 };
+      const [tag, ...params] = part.trim().split(";");
+      const qParam = params.find((p) => p.trim().startsWith("q="));
+      const q = qParam ? Number(qParam.trim().slice(2)) : 1;
+      return { base: tag.trim().toLowerCase().split("-")[0], q: Number.isFinite(q) ? q : 0 };
     })
+    .filter((l) => l.q > 0) // q=0 means "not acceptable"
     .sort((a, b) => b.q - a.q);
   for (const { base } of ranked) {
     if ((LANGS as readonly string[]).includes(base)) return base as Lang;
@@ -29,5 +32,5 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   // Skip API routes, Next internals and files with an extension (favicon, images).
-  matcher: ["/((?!api|_next|.*\\..*).*)"],
+  matcher: ["/((?!api/|api$|_next/|.*\\..*).*)"],
 };

@@ -20,7 +20,12 @@ A radius query returns `70249` and `70250` (both "Brigham Circle"). Dedupe by pa
 ## 5. Contact data is messy
 A central contact "name" can be a sentence: `"Trial questions or participation questions: 1-877-CTLILLY (1-877-285-4559) or"`. Prefer site-level contacts with a phone or email, drop `PRINCIPAL_INVESTIGATOR` entries that have neither, and pass phone strings through untouched (the UI builds `tel:` links with `lib/phone.ts`).
 
-## 6. Small things
+## 6. Please export plain functions too
+Right now `lib/data.ts` calls `/api/trials` over HTTP from server components. On Vercel **preview** deployments, Vercel Authentication is on by default, so that server-side fetch has no cookie → 401 → "We couldn't load studies". Production URLs are fine. The Next 16 docs also advise against fetching your own route handlers from the server. If you put the logic in `lib/server/trials.ts` as `searchTrials(q)` / `getTrialDetail(nct)` (route handlers calling them), I'll switch `lib/data.ts` to import them directly. It's a one-line change on my side. Until then, set `TRIALPATH_MOCK=1` on preview deployments.
+
+`lib/data.ts` now validates responses: trials missing `nctId`/`title`/`nearestSite`/`distanceMi` are dropped, and missing arrays (`stops`, `contacts`, `sites`, `conditions`) become `[]`.
+
+## 7. Small things
 - `phase`: `["PHASE2"]` → `"Phase 2"`, `["PHASE1","PHASE2"]` → `"Phase 1/2"`, `NA` or missing → `null`.
 - Ages: `"18 Years"`, `"6 Months"`, missing. The frontend expects years as a number or `null` (6 months → 0.5).
 - `/api/simplify` must return **3–6 questions** with `ruleOutIf`. The UI treats "not sure" as never ruling out, so a question phrased backwards ends up as an "ask the team". Prompt the model for questions where a single yes/no clearly maps to one inclusion or exclusion line, and keep NCT IDs, phone numbers and emails verbatim in translations.

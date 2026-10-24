@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { HTML_LANG, type MessageKey, type Translate } from "@/lib/i18n";
 import { quickCheck, type Answer, type Profile } from "@/lib/quickCheck";
 import type { Eligibility, FitQuestion, Lang } from "@/lib/types";
@@ -20,6 +20,9 @@ const SEX_LABELS: Record<SexChoice, MessageKey> = {
   MALE: "fit.sexMale",
   skip: "fit.sexSkip",
 };
+
+const AGE_COMMIT_MS = 800; // pause before a typed age counts, so "70" never flashes a result for "7"
+const NO_ANSWERS: Record<string, Answer> = {};
 
 // Everything here stays in React state: nothing is sent over the network or written to storage.
 // The outcome comes only from lib/quickCheck.ts, which has exactly two results and never lets
@@ -41,14 +44,49 @@ export function QuickCheck({
 }) {
   const uid = useId();
   const [ageText, setAgeText] = useState("");
+  const [committedAge, setCommittedAge] = useState("");
+  const ageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [sex, setSex] = useState<SexChoice | null>(null);
   const [healthy, setHealthy] = useState<HealthyChoice | null>(null);
-  const [answers, setAnswers] = useState<Record<string, Answer>>({});
+
+  // Answers belong to one exact question set. If the questions differ in any way (ids or
+  // wording), the old answers are dropped instead of being attached to the new questions.
+  const questionSet = questions.map((q) => q.id + q.text).join("|");
+  const [answerState, setAnswerState] = useState<{
+    set: string;
+    answers: Record<string, Answer>;
+  }>({ set: questionSet, answers: {} });
+  const answers = answerState.set === questionSet ? answerState.answers : NO_ANSWERS;
+  const setAnswer = (id: string, value: Answer) =>
+    setAnswerState((prev) => ({
+      set: questionSet,
+      answers: { ...(prev.set === questionSet ? prev.answers : {}), [id]: value },
+    }));
+
+  useEffect(
+    () => () => {
+      if (ageTimer.current) clearTimeout(ageTimer.current);
+    },
+    [],
+  );
+
+  const commitAge = (text: string) => {
+    if (ageTimer.current) clearTimeout(ageTimer.current);
+    ageTimer.current = null;
+    setCommittedAge(text);
+  };
+  const onAgeChange = (raw: string) => {
+    const text = raw.replace(/\D/g, "").slice(0, 3);
+    setAgeText(text);
+    if (ageTimer.current) clearTimeout(ageTimer.current);
+    ageTimer.current = setTimeout(() => commitAge(text), AGE_COMMIT_MS);
+  };
 
   const askSex = eligibility.sex !== "ALL";
   const askHealthy = eligibility.healthyVolunteers === false;
 
-  const age = parseAge(ageText);
+  const age = parseAge(committedAge);
+  const ageInvalid = committedAge !== "" && age === undefined;
   const profile: Profile = {
     age,
     sex: askSex && (sex === "FEMALE" || sex === "MALE") ? sex : undefined,
@@ -56,13 +94,36 @@ export function QuickCheck({
     healthy: !askHealthy || healthy === null || healthy === "unsure" ? undefined : healthy === "no",
   };
   const result = quickCheck(profile, eligibility, questions, answers);
-  const hasAnswered =
-    age !== undefined ||
-    (askSex && sex !== null) ||
-    (askHealthy && healthy !== null) ||
-    questions.some((q) => answers[q.id] !== undefined);
+
+  // The result appears only once every radio group on screen has an answer ("Not sure" counts).
+  // Age is optional and never blocks it. Model questions count once they have loaded; while
+  // they load there is no result yet. With no radio groups at all, a valid age is enough.
+  const groups = [
+    ...(askSex ? [sex !== null] : []),
+    ...(askHealthy ? [healthy !== null] : []),
+    ...(status === "ready" ? questions.map((q) => answers[q.id] !== undefined) : []),
+  ];
+  const total = groups.length;
+  const done = groups.filter(Boolean).length;
+  const showResult = status !== "loading" && (total > 0 ? done === total : age !== undefined);
+
+  // One always-present status element, updated only when the outcome or the number of reasons
+  // changes (state adjusted during render, not in an effect). The trailing no-break space
+  // alternates so a change in reasons alone, with the same words, is still a DOM change that
+  // screen readers announce.
+  const announceKey = showResult ? `${result.outcome}:${result.reasons.length}` : "";
+  const [announced, setAnnounced] = useState({ key: "", text: "", flip: false });
+  if (announced.key !== announceKey) {
+    const text = !showResult
+      ? ""
+      : result.outcome === "possible-fit"
+        ? `${t("fit.possibleTitle")} ${t("fit.possibleBody")}`
+        : `${t("fit.askTitle")} ${t("fit.askBody")}`;
+    setAnnounced({ key: announceKey, text, flip: !announced.flip });
+  }
 
   const questionTextLang = questionsLang !== lang ? HTML_LANG[questionsLang] : undefined;
+  const ageErrorId = `${uid}-age-error`;
 
   return (
     <section className="mt-6 border-t border-line pt-6" aria-labelledby={`${uid}-heading`}>
@@ -78,16 +139,23 @@ export function QuickCheck({
           </label>
           <input
             id={`${uid}-age`}
-            type="number"
+            type="text"
             inputMode="numeric"
-            min={0}
-            max={120}
-            step={1}
+            pattern="[0-9]*"
+            maxLength={3}
             autoComplete="off"
             value={ageText}
-            onChange={(e) => setAgeText(e.target.value)}
-            className="mt-2 block min-h-12 w-32 rounded-lg border border-line bg-card px-3 text-base text-ink"
+            onChange={(e) => onAgeChange(e.target.value)}
+            onBlur={() => commitAge(ageText)}
+            aria-invalid={ageInvalid || undefined}
+            aria-describedby={ageInvalid ? ageErrorId : undefined}
+            className="mt-2 block min-h-12 w-32 rounded-lg border border-muted bg-card px-3 text-base text-ink"
           />
+          {ageInvalid && (
+            <p id={ageErrorId} className="mt-2 text-ask">
+              {t("fit.ageError")}
+            </p>
+          )}
         </div>
 
         {askSex && (
@@ -121,12 +189,12 @@ export function QuickCheck({
         )}
 
         {status === "loading" ? (
-          <div aria-busy="true">
+          <div>
             <p role="status" className="text-muted">
               {t("fit.questionsLoading")}
             </p>
             {[0, 1, 2].map((i) => (
-              <div key={i} className="mt-4" aria-hidden="true">
+              <div key={i} className="mt-4" aria-busy="true" aria-hidden="true">
                 <div className="skeleton h-4 w-5/6" />
                 <div className="mt-3 flex gap-2">
                   <div className="skeleton h-12 w-20" />
@@ -147,7 +215,7 @@ export function QuickCheck({
                   name={`${uid}-q${i}`}
                   value={value}
                   checked={answers[q.id] === value}
-                  onChange={() => setAnswers((prev) => ({ ...prev, [q.id]: value }))}
+                  onChange={() => setAnswer(q.id, value)}
                   label={t(ANSWER_LABELS[value])}
                 />
               ))}
@@ -181,22 +249,40 @@ export function QuickCheck({
         </dl>
       </div>
 
-      <div className="mt-6" aria-live="polite">
-        {hasAnswered ? (
-          <FitResult result={result} eligibility={eligibility} questions={questions} t={t} />
+      <p role="status" aria-atomic="true" className="sr-only">
+        {announced.text}
+        {announced.text && announced.flip ? " " : ""}
+      </p>
+
+      <div className="mt-6">
+        {showResult ? (
+          <FitResult
+            result={result}
+            eligibility={eligibility}
+            questions={questions}
+            answers={answers}
+            questionTextLang={questionTextLang}
+            lang={lang}
+            t={t}
+          />
         ) : (
-          <p className="no-print text-muted">{t("fit.pending")}</p>
+          <p className="no-print text-muted">
+            {/* While questions load the total isn't known yet, so no count is shown. */}
+            {status !== "loading" && total > 0
+              ? t("fit.progress", { done, total })
+              : t("fit.pending")}
+          </p>
         )}
       </div>
     </section>
   );
 }
 
-// Empty, partial or out-of-range input counts as "not answered", never as a mismatch.
+// Only a whole number from 0 to 120 counts. Anything else is "not answered", never a mismatch.
 function parseAge(text: string): number | undefined {
-  if (text.trim() === "") return undefined;
+  if (!/^\d{1,3}$/.test(text)) return undefined;
   const n = Number(text);
-  return Number.isFinite(n) && n >= 0 && n <= 120 ? n : undefined;
+  return n <= 120 ? n : undefined;
 }
 
 function ChoiceGroup({

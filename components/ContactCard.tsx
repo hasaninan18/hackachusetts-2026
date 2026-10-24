@@ -3,8 +3,10 @@ import type { Translate } from "@/lib/i18n";
 import { telHref } from "@/lib/phone";
 import { PrintButton } from "./PrintButton";
 
+const EMAIL_RE = /^[^\s@?&<>]+@[^\s@?&<>]+\.[A-Za-z]{2,}$/;
+
 const LINK_CLASS =
-  "inline-flex min-h-12 items-center rounded-lg border border-primary px-4 text-base font-medium text-primary break-all";
+  "inline-flex min-h-12 items-center rounded-lg border border-primary px-4 text-base font-medium text-primary break-words";
 
 export function ContactCard({
   nctId,
@@ -57,11 +59,14 @@ export function ContactCard({
                   ) : (
                     <p className="text-ink">{c.phone}</p>
                   ))}
-                {c.email && (
-                  <a href={`mailto:${c.email}`} className={LINK_CLASS}>
-                    {t("contact.email", { email: c.email })}
-                  </a>
-                )}
+                {c.email &&
+                  (EMAIL_RE.test(c.email) ? (
+                    <a href={`mailto:${c.email}`} className={LINK_CLASS}>
+                      {t("contact.email", { email: c.email })}
+                    </a>
+                  ) : (
+                    <p className="break-words text-ink">{c.email}</p>
+                  ))}
               </li>
             );
           })}

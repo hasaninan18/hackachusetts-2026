@@ -1,7 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { isMaZip } from "@/lib/geo";
 import { format } from "@/lib/i18n";
 import type { Dictionary } from "@/lib/i18n";
@@ -27,6 +28,16 @@ export function SearchForm({ lang, dict }: { lang: Lang; dict: Dictionary }) {
   const [loc, setLoc] = useState<LocStatus>("idle");
   const [errors, setErrors] = useState<Errors>({});
 
+  // Pre-fill from the URL after mount (not during render) to avoid a hydration mismatch.
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const c = sp.get("cond");
+    const r = Number(sp.get("radius"));
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (c) setCond(c.slice(0, 200));
+    if ((RADII as readonly number[]).includes(r)) setRadius(r);
+  }, []);
+
   const ids = {
     cond: `${uid}-cond`,
     condHint: `${uid}-cond-hint`,
@@ -37,6 +48,7 @@ export function SearchForm({ lang, dict }: { lang: Lang; dict: Dictionary }) {
   };
 
   function locate() {
+    if (loc === "locating") return;
     if (!("geolocation" in navigator)) {
       setLoc("denied");
       return;
@@ -44,7 +56,11 @@ export function SearchForm({ lang, dict }: { lang: Lang; dict: Dictionary }) {
     setLoc("locating");
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        setCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude });
+        // ~1 km precision: enough for "near me", not an address.
+        setCoords({
+          lat: Number(pos.coords.latitude.toFixed(2)),
+          lon: Number(pos.coords.longitude.toFixed(2)),
+        });
         setZip("");
         setErrors((e) => ({ ...e, zip: undefined }));
         setLoc("set");
@@ -71,11 +87,12 @@ export function SearchForm({ lang, dict }: { lang: Lang; dict: Dictionary }) {
         next.zip = dict["search.errorZipUnknown"];
       } else {
         const [lat, lon] = ZIP_TABLE[zip];
-        point = { lat, lon };
+        point = { lat: Number(lat.toFixed(2)), lon: Number(lon.toFixed(2)) };
       }
     }
 
-    setErrors(next);
+    // Commit the error text before moving focus so screen readers announce it with the field.
+    flushSync(() => setErrors(next));
     if (next.cond) {
       condRef.current?.focus();
       return;
@@ -87,8 +104,8 @@ export function SearchForm({ lang, dict }: { lang: Lang; dict: Dictionary }) {
 
     const qs = new URLSearchParams({
       cond: term,
-      lat: point.lat.toFixed(5),
-      lon: point.lon.toFixed(5),
+      lat: point.lat.toFixed(2),
+      lon: point.lon.toFixed(2),
       radius: String(radius),
     });
     // Read at submit time so the page needs no Suspense boundary (which re-mounted the form).
@@ -97,7 +114,7 @@ export function SearchForm({ lang, dict }: { lang: Lang; dict: Dictionary }) {
   }
 
   const inputClass =
-    "mt-2 block min-h-12 w-full rounded-md border border-line bg-card px-3 text-base text-ink";
+    "mt-2 block min-h-12 w-full rounded-md border border-muted bg-card px-3 text-base text-ink";
   const zipDescribedBy = [errors.zip ? ids.zipErr : null, loc !== "idle" ? ids.locMsg : null]
     .filter(Boolean)
     .join(" ");
@@ -118,13 +135,16 @@ export function SearchForm({ lang, dict }: { lang: Lang; dict: Dictionary }) {
           type="text"
           required
           value={cond}
-          onChange={(e) => setCond(e.target.value)}
+          onChange={(e) => {
+            setCond(e.target.value);
+            if (errors.cond) setErrors((x) => ({ ...x, cond: undefined }));
+          }}
           aria-invalid={errors.cond ? true : undefined}
           aria-describedby={errors.cond ? `${ids.condHint} ${ids.condErr}` : ids.condHint}
           className={inputClass}
         />
         {errors.cond && (
-          <p id={ids.condErr} className="mt-2 text-sm font-semibold text-ask">
+          <p id={ids.condErr} role="alert" className="mt-2 text-sm font-semibold text-ask">
             {errors.cond}
           </p>
         )}
@@ -146,6 +166,7 @@ export function SearchForm({ lang, dict }: { lang: Lang; dict: Dictionary }) {
           value={zip}
           onChange={(e) => {
             setZip(e.target.value.replace(/\D/g, ""));
+            if (errors.zip) setErrors((x) => ({ ...x, zip: undefined }));
             if (coords) {
               setCoords(null);
               setLoc("idle");
@@ -156,19 +177,20 @@ export function SearchForm({ lang, dict }: { lang: Lang; dict: Dictionary }) {
           className={inputClass}
         />
         {errors.zip && (
-          <p id={ids.zipErr} className="mt-2 text-sm font-semibold text-ask">
+          <p id={ids.zipErr} role="alert" className="mt-2 text-sm font-semibold text-ask">
             {errors.zip}
           </p>
         )}
         <button
           type="button"
           onClick={locate}
-          disabled={loc === "locating"}
-          className="mt-3 min-h-12 w-full rounded-md border border-line bg-card px-4 font-semibold text-ink hover:bg-paper disabled:text-muted sm:w-auto"
+          aria-disabled={loc === "locating" ? true : undefined}
+          className="mt-3 min-h-12 w-full rounded-md border border-line bg-card px-4 font-semibold text-ink hover:bg-paper aria-disabled:text-muted sm:w-auto"
         >
-          {loc === "locating" ? dict["search.locating"] : dict["search.useLocation"]}
+          {dict["search.useLocation"]}
         </button>
         <p id={ids.locMsg} role="status" className="mt-2 text-sm text-muted">
+          {loc === "locating" && dict["search.locating"]}
           {loc === "set" && dict["search.locationSet"]}
           {loc === "denied" && dict["search.locationDenied"]}
         </p>
