@@ -22,6 +22,13 @@ interface FacilityOverride {
   lon: number;
   /** Normalized substrings (see {@link normalizeName}) matched against a facility name. */
   aliases: string[];
+  /**
+   * Normalized substrings that VETO a match even when an alias hits. Lets a broad
+   * alias like "brigham" claim the main hospital while excluding distinct sister
+   * campuses that share the brand — e.g. "Brigham and Women's Faulkner Hospital",
+   * a separate Jamaica Plain hospital ~2 mi from the main Longwood campus.
+   */
+  excludeAliases?: string[];
 }
 
 /**
@@ -31,7 +38,7 @@ interface FacilityOverride {
  */
 export const FACILITY_OVERRIDES: FacilityOverride[] = [
   { lat: 42.335, lon: -71.0728, aliases: ["boston medical center"] },
-  { lat: 42.3355, lon: -71.1067, aliases: ["brigham"] },
+  { lat: 42.3355, lon: -71.1067, aliases: ["brigham"], excludeAliases: ["faulkner"] },
   { lat: 42.3396, lon: -71.1066, aliases: ["beth israel", "bidmc"] },
   { lat: 42.3625, lon: -71.0694, aliases: ["massachusetts general", "mgh"] },
   { lat: 42.3377, lon: -71.1057, aliases: ["boston children"] },
@@ -77,7 +84,8 @@ export function isBostonCentroid(lat: number, lon: number): boolean {
  * Pure and total — any string + any numbers map to a {@link CorrectedPoint}, never throws:
  *  - non-finite input          → `{ centroid coords, "city" }` (defensive fallback)
  *  - not the Boston centroid    → `{ api coords, "facility" }` (API geocoded a real point)
- *  - centroid + alias name hit  → `{ override coords, "facility" }`
+ *  - centroid + alias hit, not vetoed → `{ override coords, "facility" }`
+ *  - centroid + alias hit but a sister-campus veto (e.g. "faulkner") → falls through
  *  - centroid + no name hit     → `{ centroid coords, "city" }`
  */
 export function correctCoordinates(name: string, lat: number, lon: number): CorrectedPoint {
@@ -95,7 +103,8 @@ export function correctCoordinates(name: string, lat: number, lon: number): Corr
   const normalized = normalizeName(name);
   if (normalized) {
     for (const override of FACILITY_OVERRIDES) {
-      if (override.aliases.some((alias) => normalized.includes(alias))) {
+      const vetoed = override.excludeAliases?.some((alias) => normalized.includes(alias)) ?? false;
+      if (!vetoed && override.aliases.some((alias) => normalized.includes(alias))) {
         return { lat: override.lat, lon: override.lon, precision: "facility" };
       }
     }

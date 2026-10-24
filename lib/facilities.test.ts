@@ -61,6 +61,47 @@ describe("correctCoordinates — facility alias overrides at the Boston centroid
   }
 });
 
+describe("correctCoordinates — Faulkner must not inherit the main Brigham override (issue #4)", () => {
+  const { lat: CLAT2, lon: CLON2 } = BOSTON_CENTROID;
+  const MAIN_BRIGHAM = { lat: 42.3355, lon: -71.1067 };
+
+  it("corrects the MAIN Brigham hospital to its campus coordinates", () => {
+    // The main Longwood hospital must still match so its distances stay correct.
+    expect(correctCoordinates("Brigham and Women's Hospital", CLAT2, CLON2)).toEqual<CorrectedPoint>({
+      ...MAIN_BRIGHAM,
+      precision: "facility",
+    });
+    expect(correctCoordinates("Brigham & Women's Hospital", CLAT2, CLON2)).toEqual<CorrectedPoint>({
+      ...MAIN_BRIGHAM,
+      precision: "facility",
+    });
+  });
+
+  it("does NOT give Faulkner the main Brigham override (stays city at the centroid)", () => {
+    // "Brigham and Women's Faulkner Hospital" is a separate Jamaica Plain hospital.
+    // The "faulkner" veto must stop the broad "brigham" alias from claiming it.
+    for (const name of [
+      "Brigham and Women's Faulkner Hospital",
+      "Brigham & Women's Faulkner Hospital",
+      "BWH Faulkner",
+      "Faulkner Hospital (Brigham and Women's)",
+    ]) {
+      const result = correctCoordinates(name, CLAT2, CLON2);
+      expect(result).not.toEqual(expect.objectContaining(MAIN_BRIGHAM));
+      // No Faulkner override exists, so it correctly falls through to the city centroid.
+      expect(result).toEqual<CorrectedPoint>({ lat: CLAT2, lon: CLON2, precision: "city" });
+    }
+  });
+
+  it("keeps a Faulkner site's distinct API geoPoint when it is not the centroid", () => {
+    // If the API already geocoded Faulkner to a real point, pass it through untouched.
+    const faulknerPoint = { lat: 42.3015, lon: -71.1278 }; // JP, well off the centroid
+    expect(
+      correctCoordinates("Brigham and Women's Faulkner Hospital", faulknerPoint.lat, faulknerPoint.lon),
+    ).toEqual<CorrectedPoint>({ ...faulknerPoint, precision: "facility" });
+  });
+});
+
 describe("correctCoordinates — centroid + unknown name → city", () => {
   it("keeps the centroid coords with precision 'city'", () => {
     const result = correctCoordinates("Some Random Clinic", CLAT, CLON);

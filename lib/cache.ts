@@ -17,8 +17,9 @@ const store = new Map<string, CacheEntry<unknown>>();
 
 /**
  * Return the cached value for `key` when it is still fresh (< CACHE_TTL_MS old
- * relative to `now`); otherwise `undefined`. A stale entry is left in place so
- * `cachedFetchJson` can still fall back to it when the fetcher throws.
+ * relative to `now`); otherwise `undefined`. Expired entries are never returned —
+ * the 10-minute freshness window is enforced here and on the failure fallback path
+ * in `cachedFetchJson`.
  */
 export function getCached<T>(key: string, now: number): T | undefined {
   const entry = store.get(key) as CacheEntry<T> | undefined;
@@ -35,8 +36,9 @@ export function setCached<T>(key: string, value: T, now: number): void {
 /**
  * Serve a fresh (< 10 min) entry for `key` without calling `fetcher`.
  * On a miss or stale entry, call `fetcher`, cache the result and return it.
- * If `fetcher` throws and ANY entry exists for `key` (fresh or stale), return
- * that entry as a fallback; otherwise rethrow.
+ * If `fetcher` throws, fall back to the cached entry ONLY when it is still fresh
+ * (< CACHE_TTL_MS old relative to `now`); an expired entry is never served, so the
+ * error propagates rather than returning data older than the 10-minute policy.
  */
 export async function cachedFetchJson<T>(
   key: string,
@@ -51,8 +53,12 @@ export async function cachedFetchJson<T>(
     setCached(key, value, now);
     return value;
   } catch (err) {
-    const stale = store.get(key) as CacheEntry<T> | undefined;
-    if (stale !== undefined) return stale.value;
+    // Freshness is enforced even on failure: only serve a fallback that is still
+    // within the 10-minute window. An expired entry is dropped and the error wins,
+    // so callers never receive data older than CACHE_TTL_MS.
+    const fallback = getCached<T>(key, now);
+    if (fallback !== undefined) return fallback;
+    store.delete(key);
     throw err;
   }
 }
