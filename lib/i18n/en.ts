@@ -76,10 +76,14 @@ export const en = {
   "fit.possibleBody": "Contact the study team. They will ask more questions and decide who can join.",
   "fit.askTitle": "Some answers may rule you out",
   "fit.askBody": "That doesn't always mean no. Ask the study team about your answers.",
+  "fit.unsureTitle": "Not sure yet",
   "fit.reason.age-too-young": "The study is for people {min} or older.",
   "fit.reason.age-too-old": "The study is for people {max} or younger.",
   "fit.reason.sex": "This study is only for people born {sex}.",
   "fit.reason.healthy-volunteer": "The study is for people who have the condition.",
+  "fit.reason.insufficient-info": "This study did not share enough about who can join. Ask the study team.",
+
+  "fit.reason.unchecked-criteria": "We could not ask you about all of this study's rules. The study team can tell you about them.",
   "fit.reason.answer": "You answered \"{a}\" to: {q}",
   "fit.pending": "Answer the questions above to see a result.",
   "fit.progress": "You answered {done} of {total} questions. Answer them all to see a result.",
@@ -92,6 +96,7 @@ export const en = {
   "go.accessUnknown": "We don't know if this stop has wheelchair access.",
   "go.noStops": "No train or bus stop is close by. The directions button can still show you a way.",
   "go.directions": "Directions by bus or train (opens Google Maps)",
+  "go.drivingDirections": "Driving directions (opens Google Maps)",
   "go.approx": "These stops are near the area, not the exact building.",
 
   "contact.heading": "Contact the study team",
@@ -100,6 +105,10 @@ export const en = {
   "contact.none": "This study doesn't list a contact. You can find more on ClinicalTrials.gov.",
   "contact.tip": "Tell them the study number: {nct}",
   "contact.print": "Print or save for your doctor",
+  "share.button": "Share this study",
+  "share.text": "Study {nct} on TrialPath MA",
+  "share.copied": "Link copied. You can paste it in a text or email.",
+  "share.manual": "Copy this link to share it:",
 
   "print.heading": "Study summary to share with your doctor",
   "print.answers": "My quick-check answers",

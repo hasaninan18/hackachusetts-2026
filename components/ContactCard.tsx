@@ -2,6 +2,7 @@ import type { Contact } from "@/lib/types";
 import type { Translate } from "@/lib/i18n";
 import { telHref } from "@/lib/phone";
 import { PrintButton } from "./PrintButton";
+import { ShareButton } from "./ShareButton";
 
 const EMAIL_RE = /^[^\s@?&<>]+@[^\s@?&<>]+\.[A-Za-z]{2,}$/;
 
@@ -10,11 +11,13 @@ const LINK_CLASS =
 
 export function ContactCard({
   nctId,
+  title,
   contacts,
   t,
   printLabel,
 }: {
   nctId: string;
+  title: string;
   contacts: Contact[];
   t: Translate;
   printLabel: string;
@@ -75,8 +78,15 @@ export function ContactCard({
 
       <p className="mt-4 font-medium text-ink">{t("contact.tip", { nct: nctId })}</p>
 
-      <div className="mt-4">
+      <div className="mt-4 flex flex-wrap items-start gap-3">
         <PrintButton label={printLabel} />
+        <ShareButton
+          title={`${title} (${nctId})`}
+          text={t("share.text", { nct: nctId })}
+          label={t("share.button")}
+          copiedLabel={t("share.copied")}
+          manualLabel={t("share.manual")}
+        />
       </div>
     </section>
   );

@@ -1,6 +1,6 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { haversineMi, isMaZip, transitDirectionsUrl } from "./geo";
+import { drivingDirectionsUrl, haversineMi, isMaZip, transitDirectionsUrl } from "./geo";
 import zips from "./ma-zips.json";
 
 describe("haversineMi", () => {
@@ -49,5 +49,17 @@ describe("transitDirectionsUrl", () => {
     expect(transitDirectionsUrl(dest, { lat: 42.2859, lon: -71.075 })).toContain(
       "origin=42.2859%2C-71.075",
     );
+  });
+});
+
+describe("drivingDirectionsUrl", () => {
+  it("builds the same link with travelmode=driving, with origin only when given", () => {
+    const bmc = { lat: 42.335, lon: -71.0728 };
+    expect(drivingDirectionsUrl(bmc)).toBe(
+      "https://www.google.com/maps/dir/?api=1&destination=42.335%2C-71.0728&travelmode=driving",
+    );
+    const withOrigin = new URL(drivingDirectionsUrl(bmc, { lat: 42.29, lon: -71.08 }));
+    expect(withOrigin.searchParams.get("origin")).toBe("42.29,-71.08");
+    expect(withOrigin.searchParams.get("travelmode")).toBe("driving");
   });
 });
