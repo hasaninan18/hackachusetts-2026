@@ -35,12 +35,12 @@ lists the requirements it satisfies.
   - No network calls.
   - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6_
 
-- [ ] 6. Add the 10-minute upstream cache helper (I/O layer)
+- [x] 6. Add the 10-minute upstream cache helper (I/O layer)
   - Small module-scope `Map` keyed by upstream URL (search) / NCT ID (detail), `CACHE_TTL_MS = 600_000`, checked against `Date.now()`; serve fresh entries without calling upstream.
   - Keep it in the route/I-O layer (new `lib/cache.ts` that takes the clock is fine); pure parse functions never import it.
   - _Requirements: 6.1, 6.2, 6.3, 6.4_
 
-- [ ] 7. Implement `GET /api/trials` in `app/api/trials/route.ts`
+- [x] 7. Implement `GET /api/trials` in `app/api/trials/route.ts`
   - Parse `cond`, `lat`, `lon`, `radius`; `400` JSON `ApiError` if `lat`/`lon` missing/non-numeric (no upstream call); empty `cond` allowed.
   - `normalizeRadius` → `buildSearchUrl` → cached fetch → map `slimStudy(origin)` → drop nulls → `rankBySiteDistance` → respond `{ trials, total }` JSON.
   - Upstream failure → `502`/`504` JSON `ApiError`, serving a fresh cache entry if available.

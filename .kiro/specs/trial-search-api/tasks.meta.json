@@ -60,6 +60,25 @@
         "chatSessionId": "sess_a40b85b2-ca8b-419f-a929-45e948c25b26",
         "timestamp": 1792859345425
       }
+    ],
+    "6. Add the 10-minute upstream cache helper (I/O layer)": [
+      {
+        "executionId": "6d5754c2-bafd-4f12-a4b7-5dad292f2975",
+        "chatSessionId": "sess_4d83c6d3-ee51-4bad-85b9-66e5a897b6cf",
+        "timestamp": 1792859907398
+      }
+    ],
+    "7. Implement `GET /api/trials` in `app/api/trials/route.ts`": [
+      {
+        "executionId": "6d5754c2-bafd-4f12-a4b7-5dad292f2975",
+        "chatSessionId": "sess_4d83c6d3-ee51-4bad-85b9-66e5a897b6cf",
+        "timestamp": 1792859909882
+      },
+      {
+        "executionId": "6d5754c2-bafd-4f12-a4b7-5dad292f2975",
+        "chatSessionId": "sess_4d83c6d3-ee51-4bad-85b9-66e5a897b6cf",
+        "timestamp": 1792860386819
+      }
     ]
   }
 }
