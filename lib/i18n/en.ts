@@ -37,7 +37,7 @@ export const en = {
   "results.englishNote": "Study names are shown in English. Open a study to read it in your language.",
   "results.away": "About {mi} miles away",
   "results.emptyTitle": "No studies found within {mi} miles",
-  "results.emptyBody": "Try a larger distance, or a more general word (for example \"diabetes\" instead of \"type 2 diabetes\").",
+  "results.emptyBody": "Try a wider search. Use a shorter term, like \"diabetes\" rather than \"type 2 diabetes\".",
   "results.tryWider": "Search within 25 miles",
   "results.error": "We couldn't load studies right now.",
   "results.retry": "Try again",
@@ -104,6 +104,20 @@ export const en = {
   "print.heading": "Study summary to share with your doctor",
   "print.answers": "My quick-check answers",
   "print.notAnswered": "Not answered",
+
+  "outcomes.heading": "What has this study found?",
+  "outcomes.caution": "These are results for groups of people. They do not tell you what will happen to you. Ask the study team about benefits and risks.",
+  "outcomes.sourceNote": "Study-team reports from ClinicalTrials.gov. Report text and measures are shown in English.",
+  "outcomes.posted": "Results posted or updated: {date}",
+  "outcomes.time": "Time measured:",
+  "outcomes.statistic": "Measure type:",
+  "outcomes.people": "{n} people measured in this group",
+  "outcomes.limits": "Limits noted in the report",
+  "outcomes.notPosted": "Results have not been posted for this study. This does not mean the study did not work.",
+  "outcomes.unavailable": "We cannot show the results right now. Check the official study record.",
+  "outcomes.notChecked": "Results have not been checked here yet. Check the official study record.",
+  "outcomes.checked": "Source checked: {date}",
+  "outcomes.source": "View the source on ClinicalTrials.gov (opens a new tab)",
 } as const;
 
 export type MessageKey = keyof typeof en;

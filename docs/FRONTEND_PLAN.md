@@ -97,7 +97,7 @@ interface Simplified {                             // POST /api/simplify { nctId
 - **Purpose:** one job per screen: find, understand, decide whether to call. **Audience:** a worried adult on a phone, often reading in a second language. **Tone:** calm, plain and practical, like civic signage, not a startup landing page.
 - **Signature detail:** MBTA line chips in the official line colors (Red `#DA291C`, Orange `#ED8B00`, Green `#00843D`, Blue `#003DA5`, Silver `#7C878E`, Commuter Rail `#80276C`, Bus `#FFC72C`). They're the only saturated color on the page. A chip is ink text on white with a 12 px line-color square in front, **not** text on the line color: white text fails AA on Orange (2.53:1) and on Silver (3.68:1), and ink on Silver is 4.24:1.
 - **Tokens** (CSS variables in `globals.css`, Tailwind `theme.extend`; contrast ratios measured): `--ink #1B2433` (14.7:1 on paper) · `--muted #4A5568` (7.1:1) · `--paper #FAF8F4` · `--card #FFFFFF` · `--line #E2DED6` · `--primary #0B6E69` (teal, 5.74:1 on paper, white on teal 6.09:1) · `--fit #1E6B3A` + `--fit-bg #E7F4EC` · `--ask #8A4B00` + `--ask-bg #FDF1E1` (amber, **never red**: "ask the team" isn't a failure) · `--focus #1A56DB` 3 px outline.
-- **Type:** Noto Sans (Latin and Vietnamese) + Noto Sans SC (Chinese) via `next/font`, falling back to the system font. Body 17 px, line-height 1.6, max line length 65 characters. No all-caps.
+- **Type:** Noto Sans (Latin and Vietnamese) + Noto Sans SC (Chinese), bundled through pinned Fontsource packages, falling back to the system font. Fonts are served locally; builds do not fetch from Google Fonts. Body 17 px, line-height 1.6, max line length 65 characters. No all-caps.
 - **Layout:** one column, max width 640 px, 16 px gutters, touch targets ≥ 44 px, flat sections separated by hairlines (no cards inside cards).
 - **Motion:** none beyond the skeleton shimmer, which is off under `prefers-reduced-motion`.
 
@@ -198,3 +198,26 @@ All commits go on branch `neil/frontend`. Pull requests into `main` are small, o
 4. Live languages beyond ES → keep all 6 in the picker, pre-warm only the demo trial in ES
 
 **Never cut:** the quick-check safety wording, the disclaimer, the ES demo path, the accessible-stop display.
+
+## 16. Follow-up to Neil's committed frontend (2026-10-24)
+
+The search/results/detail screens, quick check, transit, contacts, print controls, and accessibility fixes already exist on main in Neil's commits `7a0f458`, `3cd409a`, and `cdd898d`. Do not rebuild them merely because the earlier task checklist says “scaffold.” Neil authorized this follow-up in Codex; it is not evidence of Kiro usage.
+
+This follow-up fills the previously empty UI dictionaries for Spanish, Portuguese, Haitian Creole, Simplified Chinese, and Vietnamese, and adds the reported-results section requested in PLAN.md. Dictionary checks cover every key, placeholders and forbidden claims. These are draft translations that still need fluent-speaker review. Registry titles, outcome measures and source text remain marked as English; mock simplified content falls back to English when that language's fixture is absent. Live trial translation remains Hasan's API work.
+
+### Results contract for Hasan
+
+`TrialDetailWithOutcomes` is a frontend-only extension in `lib/outcomes.ts` with an optional `outcomes` field. The frontend validates it there before display. Shared `lib/types.ts` and `lib/geo.ts` remain unchanged; existing detail responses remain compatible. Backend adoption of the optional field still requires Hasan’s review.
+
+| Status | When to return it | Required fields |
+|---|---|---|
+| omitted / `not_checked` | Results integration has not run | None |
+| `unavailable` | Upstream check failed or cannot be parsed safely | None |
+| `not_posted` | A successful check of this study confirms no posted results | `nctId`, `checkedOn` (YYYY-MM-DD) |
+| `available` | Verified results for this exact study are available | `nctId`, `postedOn` (source results posting/update date), nonempty `measures` |
+
+Each measure requires its source `title`, `timeFrame`, `statistic`, and nonempty `groups`. Every group requires `name`, `participants` (nonnegative integer count analyzed for that specific measure), `value` (source text), and `unit`; optional `uncertainty` must include its label, such as SD or 95% CI. Do not substitute enrollment for the number analyzed. A missing comparison group or required field must make results unavailable, not silently remove the group. Preserve reported values, including zero and negative changes. Do not compute a personal success rate.
+
+An available report may include an English `summary` and `limitations`, sourced to the registry report. It must summarize findings faithfully, including reported harms and caveats, and never invent patient quotes. The UI fixes the source link to the same NCT ID on ClinicalTrials.gov, labels the report date, and includes the source URL in print. Result text is escaped. Checklist answers do not affect results and are not sent to this endpoint.
+
+No production outcome numbers were added to mocks. Until the backend is connected, the new section says results have not been checked. Synthetic numbers appear only in tests. A live results integration still requires checking at least one real posted-results study against the official source before release.

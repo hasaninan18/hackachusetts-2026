@@ -1,8 +1,9 @@
 import "server-only";
 import { headers } from "next/headers";
 import { haversineMi } from "./geo";
+import { parseOutcomes, type TrialDetailWithOutcomes } from "./outcomes";
 import { getMockTrial, mockTrials } from "./mock/data";
-import type { Eligibility, Site, TrialDetail, TrialSummary, TrialsResponse } from "./types";
+import type { Eligibility, Site, TrialSummary, TrialsResponse } from "./types";
 
 // Pages talk to the backend only through the HTTP contract in lib/types.ts, so Hasan's
 // route handlers can change internally without touching the UI.
@@ -83,12 +84,13 @@ function isSummary(t: unknown): t is TrialSummary {
   );
 }
 
-function toDetail(body: unknown): TrialDetail {
+function toDetail(body: unknown): TrialDetailWithOutcomes {
   if (!isSummary(body)) throw new Error("Malformed trial response");
-  const v = body as Partial<TrialDetail> & TrialSummary;
+  const v = body as Partial<TrialDetailWithOutcomes> & TrialSummary;
   const e = (v.eligibility ?? {}) as Partial<Eligibility>;
   return {
     ...v,
+    outcomes: parseOutcomes(v.outcomes, v.nctId),
     conditions: Array.isArray(v.conditions) ? v.conditions : [],
     phase: typeof v.phase === "string" ? v.phase : null,
     nearestSite: { ...v.nearestSite, locationPrecision: v.nearestSite.locationPrecision ?? "city" },
@@ -109,7 +111,7 @@ function toDetail(body: unknown): TrialDetail {
   };
 }
 
-export async function getTrial(nctId: string, mock: boolean): Promise<TrialDetail | null> {
+export async function getTrial(nctId: string, mock: boolean): Promise<TrialDetailWithOutcomes | null> {
   if (mock) return getMockTrial(nctId) ?? null;
   const res = await fetch(`${await apiBase()}/api/trials/${encodeURIComponent(nctId)}`, {
     cache: "no-store",
