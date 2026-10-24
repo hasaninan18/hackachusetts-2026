@@ -67,10 +67,11 @@ describe("haversineMi properties", () => {
 // steering draft named). We test the true behavior:
 //   * outcome is always one of the two allowed values;
 //   * an age outside [min,max] always yields "ask-team" (the cautious outcome);
-//   * empty / malformed eligibility text (no letter and no digit) with no questions
-//     yields "ask-team" with an "insufficient-info" reason — an absence of info is
-//     never a "possible-fit" (fit-check Requirement 7); text with any letter or digit,
-//     or any generated question, keeps the structured result; it never throws.
+//   * with no generated questions the outcome is never "possible-fit" (cautious
+//     fallback, docs/TASKS.md + fit-check Requirement 7): "insufficient-info" when the
+//     text has no letter and no digit, "unchecked-criteria" when it has rules that
+//     were not turned into questions; any generated question adds neither; it never
+//     throws on malformed text.
 // ---------------------------------------------------------------------------
 
 const ALLOWED_OUTCOMES = ["possible-fit", "ask-team"] as const;
@@ -154,19 +155,21 @@ describe("quickCheck cross-cutting contract", () => {
           // possible reason is the out-of-range age.
           const r = quickCheck({ age }, e, [], {});
           expect(r.outcome).toBe("ask-team");
+          // No questions also adds a missing-info reason now, so check the age one directly.
+          expect(r.reasons.some((x) => x.kind === (below ? "age-too-young" : "age-too-old"))).toBe(true);
         },
       ),
     );
   });
 
-  // fit-check task A1 (flipped together with Neil's Requirement 7 change, per the fit-check
-  // design): with no questions, text that has no letter and no digit is an absence of info
-  // and must be ask-team with an insufficient-info reason. Text with any letter or digit keeps
-  // the old result (the tech.md LLM-failure fallback). Never throws on malformed text.
-  it("empty or malformed eligibility text with no questions is ask-team (insufficient-info)", () => {
+  // fit-check task A1, updated to Hasan's 14:18 docs/TASKS.md assignment: missing criteria
+  // OR failed question generation must not give positive "possible-fit" wording from the
+  // structured checks alone. Never throws on malformed text.
+  it("with no generated questions, eligibility text never yields possible-fit", () => {
     const junkArb = fc.oneof(
       fc.constant(""),
       fc.constantFrom(" ", "\n\t ", "--- / . , ; ***"), // whitespace- and symbols-only
+      fc.string(),
       fc.string({ unit: "binary" }),
     );
     fc.assert(
@@ -179,25 +182,21 @@ describe("quickCheck cross-cutting contract", () => {
           criteriaText: junk,
         };
         const r = quickCheck({}, e, [], {});
-        expect(ALLOWED_OUTCOMES).toContain(r.outcome);
-        if (/[\p{L}\p{N}]/u.test(junk)) {
-          expect(r.outcome).toBe("possible-fit");
-        } else {
-          expect(r.outcome).toBe("ask-team");
-          expect(r.reasons).toContainEqual({ kind: "insufficient-info" });
-        }
+        expect(r.outcome).toBe("ask-team");
+        const kind = /[\p{L}\p{N}]/u.test(junk) ? "unchecked-criteria" : "insufficient-info";
+        expect(r.reasons).toEqual([{ kind }]);
       }),
     );
   });
 
-  it("any generated question means insufficient-info never fires", () => {
+  it("any generated question means neither missing-info reason fires", () => {
     fc.assert(
       fc.property(
         eligibilityArb,
         questionsArb.filter((qs) => qs.length > 0),
         (e, qs) => {
           const r = quickCheck({}, e, qs, answersFor(qs, "unsure"));
-          expect(r.reasons.some((x) => x.kind === "insufficient-info")).toBe(false);
+          expect(r.reasons.filter((x) => x.kind === "insufficient-info" || x.kind === "unchecked-criteria")).toEqual([]);
         },
       ),
     );
