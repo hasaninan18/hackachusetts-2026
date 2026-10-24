@@ -28,7 +28,7 @@ lists the requirements it satisfies.
   - `slimStudy(rawStudy, origin) → TrialSummary | null`, `toDetail(rawStudy, origin) → TrialDetail` with `stops: []`, `rankBySiteDistance(trials)` ascending/stable.
   - _Requirements: 1.1, 1.2, 1.4, 1.5, 1.8, 2.2, 2.3, 2.4, 2.6, 2.7, 3.*, 4.1, 4.2, 4.3, 4.4_
 
-- [ ] 5. Unit + property tests for `lib/clinicaltrials.ts` (`lib/clinicaltrials.test.ts`)
+- [x] 5. Unit + property tests for `lib/clinicaltrials.ts` (`lib/clinicaltrials.test.ts`)
   - Build in-repo fixtures for the five demo NCT IDs (`NCT07043426`, `NCT05784922`, `NCT07719049`, `NCT06610448`, `NCT06432790`), each with a Boston-centroid geoPoint and the real facility name.
   - Unit: `parseAge`/`parsePhase` cases; `slimStudy` on the BMC fixture yields corrected `nearestSite` + finite `distanceMi`; `nearestSite` returns the global minimum; `rankBySiteDistance` output is non-decreasing.
   - Property: `distanceMi` always finite and ≥ 0; search result list always sorted non-decreasing; Dorchester `(42.3016,-71.0676)` → corrected BMC distance **<** Dorchester → uncorrected centroid distance (radius-bug guard).
