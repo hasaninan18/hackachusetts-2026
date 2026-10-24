@@ -19,8 +19,10 @@ const FORBIDDEN = {
     "you are eligible", "you're eligible", "you qualify", "you're a match",
     "you have been accepted", "you meet the criteria", "guaranteed",
     "approved for this trial", "you are a match",
+    "you are qualified", "you're qualified", "you will be accepted", "you're approved",
   ],
-  es: ["usted califica", "usted es elegible", "cumple los requisitos", "califica para"],
+  es: ["usted califica", "usted es elegible", "cumple los requisitos", "califica para",
+    "eres elegible", "tú calificas"],
   pt: ["você se qualifica", "você é elegível", "atende aos critérios", "voce se qualifica"],
   ht: ["ou kalifye", "ou elijib"],
   zh: ["您符合条件", "您符合资格", "您合格"],
@@ -31,12 +33,18 @@ export const ALL_FORBIDDEN = Object.entries(FORBIDDEN).flatMap(([lang, arr]) =>
   arr.map((p) => ({ lang, phrase: p }))
 );
 
-// Return the matching {lang, phrase} if `text` contains any forbidden phrase (case-insensitive),
-// or null if it's clean. Pure, total, never throws on any string input (incl. non-Latin / empty).
+// Treat curly apostrophes (’ U+2019) the same as straight ones ('), so "you're" matches "you’re".
+// Applied to both the text and the phrase before comparison; also lowercases.
+export function normalizeForMatch(text) {
+  return String(text).replace(/\u2019/g, "'").toLowerCase();
+}
+
+// Return the matching {lang, phrase} if `text` contains any forbidden phrase (case-insensitive,
+// apostrophe-insensitive), or null if it's clean. Pure, total, never throws on any string input.
 export function findForbiddenPhrase(text) {
-  const lower = String(text).toLowerCase();
+  const norm = normalizeForMatch(text);
   for (const { lang, phrase } of ALL_FORBIDDEN) {
-    if (lower.includes(phrase.toLowerCase())) return { lang, phrase };
+    if (norm.includes(normalizeForMatch(phrase))) return { lang, phrase };
   }
   return null;
 }
@@ -111,6 +119,24 @@ function extractStrings(src, file) {
   return out;
 }
 
+// Return ALL forbidden phrases contained in `text` (case-insensitive), as {lang, phrase} objects.
+// Used for the whole-source .tsx scan so one file can report more than one phrase.
+export function findAllForbiddenPhrases(text) {
+  const norm = normalizeForMatch(text);
+  const hits = [];
+  for (const { lang, phrase } of ALL_FORBIDDEN) {
+    if (norm.includes(normalizeForMatch(phrase))) hits.push({ lang, phrase });
+  }
+  return hits;
+}
+
+// JSX text nodes and template-literal copy are NOT quoted string literals, so extractStrings
+// misses them. For .tsx under components/ and app/, also run the forbidden-phrase check on the
+// WHOLE source text so inline JSX ("<p>you qualify</p>") and `template ${literals}` are covered.
+function wholeSourceScanned(file) {
+  return /\.tsx$/.test(file) && /(^|[\\/])(components|app)[\\/]/.test(file);
+}
+
 function checkFile(file) {
   const violations = [];
   if (!existsSync(file)) return violations;
@@ -130,6 +156,25 @@ function checkFile(file) {
       if (grade > READING_GRADE_MAX) {
         violations.push({ file, type: "reading-grade", grade, max: READING_GRADE_MAX, text: val });
       }
+    }
+  }
+
+  // Whole-source forbidden-phrase pass for .tsx (JSX text + template literals). Skip phrases
+  // already reported from a quoted string literal above so a plain "..." isn't double-counted.
+  if (wholeSourceScanned(file)) {
+    const alreadyReported = new Set(
+      violations.filter((v) => v.type === "forbidden-phrase").map((v) => `${v.lang}:${v.phrase}`),
+    );
+    for (const { lang, phrase } of findAllForbiddenPhrases(src)) {
+      if (alreadyReported.has(`${lang}:${phrase}`)) continue;
+      alreadyReported.add(`${lang}:${phrase}`);
+      violations.push({
+        file,
+        type: "forbidden-phrase",
+        lang,
+        phrase,
+        text: "(in JSX text or template literal — see source)",
+      });
     }
   }
   return violations;

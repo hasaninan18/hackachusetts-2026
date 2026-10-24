@@ -114,4 +114,45 @@ describe("forbidden-phrase checker properties", () => {
       );
     }
   });
+
+  // One property per newly added phrase: wherever it is embedded (any prefix/suffix, any casing),
+  // the checker must flag it, and tag it with the expected language.
+  const NEW_PHRASES = [
+    { phrase: "you are qualified", lang: "en" },
+    { phrase: "you're qualified", lang: "en" },
+    { phrase: "you will be accepted", lang: "en" },
+    { phrase: "you're approved", lang: "en" },
+    { phrase: "eres elegible", lang: "es" },
+    { phrase: "tú calificas", lang: "es" },
+  ];
+  for (const { phrase, lang } of NEW_PHRASES) {
+    it(`flags new forbidden phrase "${phrase}" (lang=${lang}) anywhere, any casing`, () => {
+      // Sanity: the phrase is actually registered in ALL_FORBIDDEN.
+      expect(ALL_FORBIDDEN.some((f) => f.phrase === phrase)).toBe(true);
+      fc.assert(
+        fc.property(fc.string(), fc.string(), fc.boolean(), (prefix, suffix, upper) => {
+          const embedded = prefix + (upper ? phrase.toUpperCase() : phrase) + suffix;
+          expect(containsForbiddenPhrase(embedded)).toBe(true);
+          expect(findForbiddenPhrase(embedded)).not.toBeNull();
+        }),
+      );
+    });
+  }
+
+  // Apostrophe-insensitive matching: every phrase that uses a straight ' must also be caught when
+  // the text uses a curly ’ (U+2019). We only assert this for phrases that contain an apostrophe.
+  it("flags the curly-apostrophe (’) variant of every apostrophe phrase, any prefix/suffix", () => {
+    const apostrophePhrases = ALL_FORBIDDEN.map((f) => f.phrase).filter((p) => p.includes("'"));
+    expect(apostrophePhrases.length).toBeGreaterThan(0);
+    for (const phrase of apostrophePhrases) {
+      const curly = phrase.replace(/'/g, "\u2019");
+      expect(curly).not.toBe(phrase); // sanity: substitution actually happened
+      fc.assert(
+        fc.property(fc.string(), fc.string(), (prefix, suffix) => {
+          expect(containsForbiddenPhrase(prefix + curly + suffix)).toBe(true);
+          expect(findForbiddenPhrase(prefix + curly + suffix)).not.toBeNull();
+        }),
+      );
+    }
+  });
 });

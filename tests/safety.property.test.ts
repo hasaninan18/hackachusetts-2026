@@ -159,9 +159,12 @@ describe("quickCheck cross-cutting contract", () => {
     );
   });
 
-  it("empty or malformed eligibility text never fabricates a stricter-than-reasons outcome", () => {
-    // criteriaText is free-form junk here; it has no rule attached, so with no other
-    // disqualifier and no answers the outcome must be the safe default, never a crash.
+  it("empty or malformed eligibility text never throws and yields an allowed outcome", () => {
+    // criteriaText is free-form junk here. We only assert the two things that hold on the
+    // CURRENT code: quickCheck never throws on malformed text, and the outcome is one of the
+    // allowed values. We deliberately do NOT assert the specific outcome — safety.md treats an
+    // absence of eligibility info as the cautious "ask-team", not a reassuring "possible-fit",
+    // and fit-check Requirement 7 is the target behavior for that (see the it.fails below).
     fc.assert(
       fc.property(fc.oneof(fc.constant(""), fc.string({ unit: "binary" })), (junk) => {
         const e: Eligibility = {
@@ -173,12 +176,41 @@ describe("quickCheck cross-cutting contract", () => {
         };
         const r = quickCheck({}, e, [], {});
         expect(ALLOWED_OUTCOMES).toContain(r.outcome);
-        // nothing to rule out -> possible-fit (the "contact the team" safe outcome),
-        // and crucially it never throws on malformed text.
-        expect(r.outcome).toBe("possible-fit");
       }),
     );
   });
+
+  // TARGET BEHAVIOR (fit-check requirements.md Requirement 7): when criteriaText is empty or has
+  // no letters/digits AND there are no generated questions, the outcome must be "ask-team" — an
+  // absence of eligibility info is cautious, not a "possible-fit". The current lib/quickCheck.ts
+  // returns "possible-fit" here (zero reasons -> possible-fit), so this property FAILS today.
+  // it.fails keeps the suite green now and flips to RED once Neil's insufficient-info change lands
+  // (at which point remove the `.fails`). This encodes the known gap as an executable expectation.
+  it.fails(
+    "TARGET (Req 7): empty/letterless criteria with no questions must be ask-team (fails on current code)",
+    () => {
+      const emptyish = fc.oneof(
+        fc.constant(""),
+        fc.constant("   \n\t "),
+        fc.constant("--- / . , ; ***"),
+        // strings that, after trimming, contain no letters and no digits
+        fc.string({ unit: "binary" }).filter((s) => !/[\p{L}\p{N}]/u.test(s)),
+      );
+      fc.assert(
+        fc.property(emptyish, (criteriaText) => {
+          const e: Eligibility = {
+            minAgeYears: null,
+            maxAgeYears: null,
+            sex: "ALL",
+            healthyVolunteers: true,
+            criteriaText,
+          };
+          const r = quickCheck({}, e, [], {});
+          expect(r.outcome).toBe("ask-team");
+        }),
+      );
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------
