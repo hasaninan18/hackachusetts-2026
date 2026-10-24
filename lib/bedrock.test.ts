@@ -54,7 +54,7 @@ function validModel(overrides: Partial<SimplifyModel> = {}): SimplifyModel {
     whatYouDo: "You visit the clinic and answer questions about your health.",
     timeCommitment: "About 4 visits over 6 months.",
     questions: [
-      { id: "q1", text: "Are you 18 years or older?", ruleOutIf: "no", source_criterion: "Age 18 or older", kind: "inclusion" },
+      { id: "q1", text: "Are you 18 years or older?", ruleOutIf: "no", source_criterion: "minimumAge = 18 years", kind: "inclusion" },
       { id: "q2", text: "Do you have type 2 diabetes?", ruleOutIf: "no", source_criterion: "Type 2 diabetes", kind: "inclusion" },
       { id: "q3", text: "Are you in hospice care?", ruleOutIf: "yes", source_criterion: "hospice care", kind: "exclusion" },
     ],

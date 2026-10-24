@@ -134,26 +134,15 @@ function unique(xs: string[]): string[] {
 // Internal model shape the LLM is asked to produce (design.md). Richer than the
 // frontend contract so the 15 rules can be validated; the HTTP body is a superset.
 // ---------------------------------------------------------------------------
-export interface SimplifyQuestion {
-  id: string;
-  text: string;
-  ruleOutIf: "yes" | "no";
-  source_criterion: string;
-  kind: "inclusion" | "exclusion";
-}
-export interface SimplifyModel {
-  summary: string;
-  whatYouDo: string;
-  timeCommitment: string;
-  questions: SimplifyQuestion[];
-  staff_checks: string[];
-}
-
-/** The HTTP success body: SimplifyModel + the fields lib/simplify.ts#parseSimplified reads. */
-export interface SimplifyBody extends SimplifyModel {
-  lang: Lang;
-  whatItStudies: string; // mirror of summary — parseSimplified reads whatItStudies || summary
-}
+// Model + body shapes live in the SDK-FREE lib/bedrock-types.ts so pure helpers
+// (lib/bedrock-age.ts, lib/simplify-semantics.ts) can share them without the AWS SDK.
+// Re-exported here so existing imports from "./bedrock" are unaffected.
+export type {
+  SimplifyQuestion,
+  SimplifyModel,
+  SimplifyBody,
+} from "./bedrock-types";
+import type { SimplifyModel, SimplifyQuestion, SimplifyBody } from "./bedrock-types";
 
 export type ValidationResult =
   | { ok: true; value: SimplifyModel }
@@ -290,7 +279,28 @@ const AGE_NOTE = (detail: TrialDetail): string => {
   const { minAgeYears, maxAgeYears } = detail.eligibility;
   const min = minAgeYears === null ? "none" : `${minAgeYears} years`;
   const max = maxAgeYears === null ? "none" : `${maxAgeYears} years`;
-  return `Structured age bounds (authoritative — use THESE for the age question, not the free text): minimum age = ${min}; maximum age = ${max}.`;
+  // Tell the model the EXACT source_criterion string to emit for the age question. The
+  // semantic validator requires the age question to be grounded in the STRUCTURED bound
+  // (not a free-text quote), so the citation must name the field + value. This instruction
+  // is written to be PROVABLY CONSISTENT with that validator; the validator is still the
+  // enforcement backstop regardless of what the model returns.
+  const lines = [
+    `Structured age bounds (authoritative — use THESE for the age question, not the free text): minimum age = ${min}; maximum age = ${max}.`,
+  ];
+  if (minAgeYears !== null) {
+    lines.push(
+      `For the age question, set source_criterion to EXACTLY "minimumAge = ${minAgeYears} years" (do NOT quote the diagnosis or any other free text for the age question), ask "Are you at least ${minAgeYears} years old?", kind "inclusion", ruleOutIf "no".`,
+    );
+  }
+  if (maxAgeYears !== null) {
+    lines.push(
+      `There is also a maximum age: for an upper-bound age question set source_criterion to EXACTLY "maximumAge = ${maxAgeYears} years".`,
+    );
+  }
+  if (minAgeYears === null && maxAgeYears === null) {
+    lines.push("This study has NO structured age bound, so do NOT include any age question.");
+  }
+  return lines.join("\n");
 };
 
 /** System prompt shared by generation: encodes the non-negotiable rules. */
@@ -315,7 +325,9 @@ const ENGLISH_SYSTEM = [
   "- 3 to 6 yes/no questions, ordered from most to least likely to rule someone out.",
   "- One fact per question. Never join two conditions with 'and' or 'or'.",
   "- Each question needs a source_criterion: a short QUOTE copied from the criteria text it comes from. Do not add time words or numbers that are not in the text.",
-  "- Always include an age question built from the structured age bounds given below.",
+  "- Always include an age question built from the structured age bounds given below, using the exact source_criterion string specified there.",
+  "- The source_criterion MUST describe the SAME condition the question asks about. A question about 'type 2 diabetes' must cite the type 2 (T2DM) criterion, NEVER a 'Type 1 Diabetes (T1DM)' criterion.",
+  "- If a condition is an INCLUSION requirement ('Must have ...'), ask 'Do you have ...?' with kind 'inclusion' and ruleOutIf 'no'. If it is an EXCLUSION ('Patients with ...', 'Patients receiving ...'), ask about it with kind 'exclusion' and ruleOutIf 'yes'. Never cite an exclusion criterion to justify ruling someone out for lacking an inclusion condition.",
   "- If the criteria require being a patient at a named clinic/site, include a 'Do you get care at [site]?' question.",
   "- Include at least one patient-answerable exclusion question when one exists; set kind to 'inclusion' or 'exclusion' and ruleOutIf to 'yes' or 'no' accordingly.",
   "- Send to staff_checks (do NOT ask) anything administrative, staff-judged, or not self-knowable: deceased, consent ability, opted out of research, care-management enrollment, lab cutoffs from the record, investigator judgment.",
@@ -615,65 +627,24 @@ export function checkTranslationInvariants(
   return null;
 }
 
-/** Normalize text for substring comparison: collapse whitespace, lower-case, trim. */
-function normalizeForQuoteMatch(s: string): string {
-  return s.replace(/\s+/g, " ").trim().toLowerCase();
-}
-
-/**
- * Markers that signal a source_criterion is derived from the STRUCTURED age bounds
- * (minimumAge/maximumAge) rather than quoted free text. When a question's source_criterion
- * references these structured fields it is validated against the structured VALUES of the
- * study (see validateStructuredAgeCitation), NOT required to appear verbatim in the
- * free-text criteria block.
- */
-const STRUCTURED_AGE_MARKERS = [
-  "minimumage",
-  "maximumage",
-  "minimum age",
-  "maximum age",
-  "structured age",
-  "age bound",
-  "age bounds",
-];
-/** True if a source_criterion is referencing the structured age fields. */
-export function isStructuredAgeCriterion(sourceCriterion: string): boolean {
-  const n = normalizeForQuoteMatch(sourceCriterion);
-  return STRUCTURED_AGE_MARKERS.some((m) => n.includes(m));
-}
-/** Which structured age bound a citation names. */
-export type AgeBoundField = "min" | "max";
-export interface StructuredAgeCitation {
-  field: AgeBoundField;
-  value: number;
-}
-/** Tolerance (years) allowed ONLY when a cited or actual age is non-integer. */
-const AGE_MATCH_TOLERANCE_YEARS = 0.1;
-/**
- * Parse a structured-age source_criterion into the CITED field (min vs max) and the CITED
- * numeric age VALUE, or null if neither can be extracted. Field detection prefers explicit
- * "minimum"/"maximum" (or "minAge"/"maxAge") wording; the value is the first number in the
- * string. This is the data we validate against the study's ACTUAL bounds -- merely looking
- * like an age citation is NOT enough.
- */
-export function parseStructuredAgeCitation(sourceCriterion: string): StructuredAgeCitation | null {
-  const n = normalizeForQuoteMatch(sourceCriterion);
-  const mentionsMin = /\bmin(?:imum)?\s*age\b|\bminimumage\b/.test(n);
-  const mentionsMax = /\bmax(?:imum)?\s*age\b|\bmaximumage\b/.test(n);
-  let field: AgeBoundField | null = null;
-  // If exactly one of the two is named, that is the cited field. If BOTH are named we
-  // cannot attribute the one number to one field, so the citation is ambiguous and
-  // unparseable -- reject it.
-  if (mentionsMin && !mentionsMax) field = "min";
-  else if (mentionsMax && !mentionsMin) field = "max";
-  if (field === null) return null;
-  // Extract the first numeric value (supports integers and decimals, e.g. "0.5 years").
-  const numMatch = n.match(/(\d+(?:\.\d+)?)/);
-  if (!numMatch) return null;
-  const value = Number(numMatch[1]);
-  if (!Number.isFinite(value)) return null;
-  return { field, value };
-}
+// Structured-age helpers + quote normalization live in the SDK-FREE lib/bedrock-age.ts so
+// lib/simplify-semantics.ts can share the SAME implementation. Re-exported here so existing
+// imports from "./bedrock" are unaffected.
+import {
+  normalizeForQuoteMatch,
+  isStructuredAgeCriterion,
+  parseStructuredAgeCitation,
+  AGE_MATCH_TOLERANCE_YEARS,
+} from "./bedrock-age";
+export {
+  isStructuredAgeCriterion,
+  parseStructuredAgeCitation,
+} from "./bedrock-age";
+export type { AgeBoundField, StructuredAgeCitation } from "./bedrock-age";
+// The SEMANTIC AUTHORITY: subject/polarity/kind/age/staff-only checks beyond shape &
+// substring. Pure + SDK-free; run as the English extraValidate step so a mismatch fails
+// closed into the bounded retry/fallback and, ultimately, a safe 503 at the route.
+import { checkQuestionSemantics } from "./simplify-semantics";
 /**
  * Validate a structured-age citation against the study's ACTUAL bounds. Returns an error
  * string, or null when the citation is correct. Rules:
@@ -768,7 +739,11 @@ export async function generateSimplified(deps: GenerateDeps): Promise<GenerateRe
     buildEnglishPrompt(deps.detail),
     source,
     deadline,
-    (model) => checkSourceCriteria(model, deps.detail),
+    (model) =>
+      // Grounding (quotes present / structured-age values) THEN semantics (subject,
+      // polarity, kind, staff-only, age-bound). First failure wins; either fails closed.
+      checkSourceCriteria(model, deps.detail) ??
+      checkQuestionSemantics(model, deps.detail),
   );
   if (!english.ok) return { ok: false, error: `english generation failed: ${english.error}` };
   if (deps.lang === "en") {
