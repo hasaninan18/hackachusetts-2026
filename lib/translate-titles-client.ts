@@ -170,21 +170,39 @@ export interface StartTitlesOptions {
   onUpdate: (translations: Map<string, TitleTranslation>) => void;
   request?: typeof requestTitleTranslations;
   batchSize?: number;
+  maxInFlight?: number;
 }
 
 /**
- * Fire-and-forget: send the items in parallel batches and report translations as each batch
- * lands. Returns immediately (it never awaits), so the English list is never held up. A
- * failed or late batch just leaves its studies in English; nothing is reported after abort.
+ * Most batch requests in flight at once. 5 × 10 covers the live search's 50-study maximum
+ * in one wave, so short lists behave exactly as before; a longer list (the national database
+ * returns up to 200) queues instead of firing 20 Bedrock calls at once.
+ */
+export const MAX_BATCHES_IN_FLIGHT = 5;
+
+/**
+ * Fire-and-forget: send the items in parallel batches (at most `maxInFlight` at a time) and
+ * report translations as each batch lands. Returns immediately (it never awaits), so the
+ * English list is never held up. A failed or late batch just leaves its studies in English;
+ * nothing is reported, and no further batch is sent, after abort.
  */
 export function startTitleTranslations(opts: StartTitlesOptions): void {
   const request = opts.request ?? requestTitleTranslations;
   const found = new Map<string, TitleTranslation>();
-  for (const batch of chunk(opts.items, opts.batchSize ?? CLIENT_BATCH_SIZE)) {
-    void request({ lang: opts.lang, items: batch, signal: opts.signal }).then((result) => {
-      if (opts.signal.aborted || !result || result.size === 0) return;
-      for (const [id, value] of result) found.set(id, value);
-      opts.onUpdate(new Map(found));
-    });
-  }
+  const queue = chunk(opts.items, opts.batchSize ?? CLIENT_BATCH_SIZE);
+  const sendNext = (): void => {
+    const batch = queue.shift();
+    if (!batch || opts.signal.aborted) return;
+    void request({ lang: opts.lang, items: batch, signal: opts.signal })
+      .then(
+        (result) => {
+          if (opts.signal.aborted || !result || result.size === 0) return;
+          for (const [id, value] of result) found.set(id, value);
+          opts.onUpdate(new Map(found));
+        },
+        () => undefined,
+      )
+      .finally(sendNext);
+  };
+  for (let i = 0; i < Math.max(1, opts.maxInFlight ?? MAX_BATCHES_IN_FLIGHT); i++) sendNext();
 }

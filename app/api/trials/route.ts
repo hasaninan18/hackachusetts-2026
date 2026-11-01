@@ -5,7 +5,10 @@
 // (structure.md: pure logic in lib/, I/O in routes). Flow per Requirement 1:
 //
 //   validate lat/lon (400, no upstream call if bad)
-//     → normalizeRadius → buildSearchUrl
+//     → normalizeRadius
+//     → [database configured (lib/db/client.ts)] searchTrials → { trials, total } JSON,
+//       or on any database error continue below
+//     → buildSearchUrl
 //     → cachedFetchJson (10-min cache, keyed by the upstream URL)
 //     → slimStudy(origin) per study → drop nulls → withinRadius → rankBySiteDistance
 //     → { trials, total } JSON.
@@ -31,6 +34,12 @@ import {
   withinRadius,
 } from "../../../lib/clinicaltrials";
 import { toEnglishCondition } from "../../../lib/condition-terms";
+import { getDb } from "../../../lib/db/client";
+import { searchTrials } from "../../../lib/db/trials";
+import { ACTIVE_REGION } from "../../../lib/region";
+
+/** Most trials one database search returns (the live path is capped at 50 by upstream). */
+const DB_RESULT_LIMIT = 200;
 
 /** How long to wait on the upstream before giving up with a 504. */
 const UPSTREAM_TIMEOUT_MS = 10_000;
@@ -101,6 +110,26 @@ export async function GET(request: Request): Promise<NextResponse> {
   const cond = toEnglishCondition(searchParams.get("cond") ?? "");
   const radius = normalizeRadius(searchParams.get("radius"));
   const origin = { lat, lon };
+
+  // National database path (docs/NATIONAL_PLAN.md §2), only when one is configured. It has
+  // no 50-study cap and filters sites to the build's region. Any database failure falls
+  // through to the live ClinicalTrials.gov path below rather than failing the search.
+  const db = await getDb();
+  if (db) {
+    try {
+      const trials = await searchTrials(db, {
+        lat,
+        lon,
+        radiusMi: radius,
+        cond,
+        states: ACTIVE_REGION.states,
+        limit: DB_RESULT_LIMIT,
+      });
+      return NextResponse.json<TrialsResponse>({ trials, total: trials.length });
+    } catch (err) {
+      console.error("[db] search failed; falling back to ClinicalTrials.gov", err);
+    }
+  }
 
   const url = buildSearchUrl({ cond, lat, lon, radius });
 
