@@ -22,3 +22,7 @@ npm-debug.log*
 # Kiro Crew CLI local state (never commit — do NOT ignore .kiro/ itself)
 .kiro/settings/.kirocrew-cli-settings.lock
 .kiro/settings/cli.json
+
+# National snapshot output (scripts/snapshot-us.ts) — regenerate, never commit
+data/snapshot/
+data/pglite/

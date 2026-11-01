@@ -3,14 +3,13 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { isMaZip } from "@/lib/geo";
 import { format } from "@/lib/i18n";
 import type { Dictionary } from "@/lib/i18n";
-import zips from "@/lib/ma-zips.json";
+import { ACTIVE_REGION } from "@/lib/region";
 import type { Lang } from "@/lib/types";
+import { lookupZip } from "@/lib/zip";
 
 const RADII = [5, 10, 25] as const;
-const ZIP_TABLE = zips as unknown as Record<string, [number, number]>;
 
 type Coords = { lat: number; lon: number };
 type LocStatus = "idle" | "locating" | "set" | "denied";
@@ -73,7 +72,7 @@ export function SearchForm({ lang, dict }: { lang: Lang; dict: Dictionary }) {
     );
   }
 
-  function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const next: Errors = {};
     const term = cond.trim();
@@ -81,13 +80,14 @@ export function SearchForm({ lang, dict }: { lang: Lang; dict: Dictionary }) {
 
     let point: Coords | null = coords;
     if (!point) {
-      if (!isMaZip(zip)) {
+      // Fetches only the 3-digit prefix shard (public/zcta/), never the full ZIP.
+      const found = await lookupZip(zip, ACTIVE_REGION);
+      if (found.kind === "invalid" || found.kind === "outside") {
         next.zip = dict["search.errorZip"];
-      } else if (!(zip in ZIP_TABLE)) {
+      } else if (found.kind !== "ok") {
         next.zip = dict["search.errorZipUnknown"];
       } else {
-        const [lat, lon] = ZIP_TABLE[zip];
-        point = { lat: Number(lat.toFixed(2)), lon: Number(lon.toFixed(2)) };
+        point = { lat: Number(found.lat.toFixed(2)), lon: Number(found.lon.toFixed(2)) };
       }
     }
 
