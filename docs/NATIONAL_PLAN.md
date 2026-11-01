@@ -147,6 +147,45 @@ Rough estimates for three students working part time.
 - How many people reach trials whose eligibility doesn't require English.
 - How many sponsors and sites are reviewing.
 
+## Findings from the first national snapshot (2026-11-01)
+
+From `npm run snapshot:us` and `npm run db:load -- --compare`:
+
+- **21,826 trials** have at least one recruiting US site, across **136,398 recruiting US sites**.
+  Only 3 sites had no usable location.
+- **Most site pins are city centers, not buildings.** 3,128 of 3,138 US cities have exactly one
+  point for every site in them; 93.6% of sites sit on a point shared by 3+ facilities. Boston
+  only differs because of `FACILITY_OVERRIDES`. Consequences:
+  - Distances nationally are "to the city center", not "to the hospital".
+  - Nearest-stop transit would be "nearest stop to city hall". **Facility matching must ship
+    before national transit.**
+  - The ingest now labels these sites `locationPrecision: "city"` (`markSharedPointsAsCity`), so
+    the UI can say "approximate".
+- **English:** 3,766 trials (17.3%) require English with no other language, and 615 more require
+  English or another named language (heuristic in `lib/ingest/quality.ts`; MA was 16%).
+- **MA is 2,780 trials at site level.** That's trials with a *site* in MA that is itself
+  recruiting; the 3,146 in the README is the study-level count.
+- **The live search is silently capped at 50 studies** (`pageSize=50` in `buildSearchUrl`).
+  Houston, breast cancer, 10 mi: live shows 44, the database finds 175.
+- **Database search vs live:** the database found every live result except 1 per dense probe.
+  Both misses were synonym gaps ("breast cancer" vs "Breast Carcinoma"; "Type1diabetes" written
+  as one word). Fix: import MeSH entry terms (NLM), not a hand-made synonym list.
+- Speed: full pull 60–70 s; local load 20 s; database search 20–340 ms.
+
+## How to run the national pipeline locally
+
+No Docker or database account needed. PGlite runs Postgres + PostGIS in-process.
+
+```
+npm run build:zcta -- <2024_Gaz_zcta_national.txt> <tab20_zcta520_county20_natl.txt>   # only when Census data changes
+npm run snapshot:us                    # → data/snapshot/us-<date>.ndjson + .report.json
+npm run db:load -- --compare           # → data/pglite, then compares with live search
+```
+
+To try the whole-US site filter in the app, build with `NEXT_PUBLIC_TRIALPATH_REGION=us`
+(or `new-england`). Unset, it stays `ma`. UI copy still says "Massachusetts" and "MBTA"
+until region-aware copy lands.
+
 ## Implementation status
 
 Phase A, branch `neil/national-expansion`:
@@ -154,12 +193,20 @@ Phase A, branch `neil/national-expansion`:
 | Step | Status |
 |---|---|
 | Plan written (this file) | Done |
-| `lib/region.ts` + region-aware site filter (default stays `ma`) | In progress |
-| National ZIP table (`public/zcta/`) + `lookupZip` | In progress |
-| US snapshot job + data-quality report (`scripts/`) | In progress |
-| Postgres + PostGIS schema (`db/schema.sql`) | In progress |
-| Load snapshot into Postgres | Blocked: needs a database (Neon/Supabase URL, or local Docker) |
-| Facility matching against CMS / NPPES | Not started |
+| `lib/region.ts` + region-aware site filter (default stays `ma`) | Done |
+| National ZIP table (`public/zcta/`, 33,774 ZIP areas) + `lib/zip.ts`, used by the search form | Done (checked in the browser) |
+| US snapshot job + data-quality report (`scripts/snapshot-us.ts`, `lib/ingest/`) | Done |
+| Postgres + PostGIS schema (`db/schema.sql`) + loader + search (`lib/db/trials.ts`) | Done, tested on PGlite |
+| Hosted database (Neon or Supabase) + `pg` client + nightly cron route | Not started; needs a team account |
+| Switch `/api/trials` to the database when `DATABASE_URL` is set | Not started |
+| MeSH entry terms for condition synonyms | Not started |
+| Facility matching against CMS / NPPES (fix city-center pins) | Not started; **blocks national transit** |
 | `TransitProvider` + GTFS stops import | Not started |
-| Region-aware copy in `lib/i18n/*` | Not started |
+| Region-aware copy in `lib/i18n/*` (all 6 languages) | Not started |
 | Bedrock cost run on 100 US trials | Not started |
+
+Known gaps:
+- On the live per-request path, `correctCoordinates` still places a site with no geoPoint at
+  Boston's center. That's harmless for MA, but don't ship `us` on the live path. The database path
+  uses the ZIP centroid instead.
+- US territories (PR, GU, VI, AS, MP) are outside every region for now.
