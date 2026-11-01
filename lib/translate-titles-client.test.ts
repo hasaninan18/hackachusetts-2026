@@ -4,6 +4,7 @@ import fc from "fast-check";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CLIENT_BATCH_SIZE,
+  MAX_BATCHES_IN_FLIGHT,
   MAX_TITLE_ITEMS,
   chunk,
   parseTitlesResponse,
@@ -175,6 +176,73 @@ describe("startTitleTranslations never blocks", () => {
     });
     await new Promise((r) => setTimeout(r, 0));
     expect(updates).toEqual([["A"], ["A", "C"]]);
+  });
+
+  it("keeps at most MAX_BATCHES_IN_FLIGHT requests open, starting the next as one lands", async () => {
+    const pending: Array<(v: Map<string, TitleTranslation> | null) => void> = [];
+    const request = vi.fn(
+      () => new Promise<Map<string, TitleTranslation> | null>((resolve) => pending.push(resolve)),
+    );
+    startTitleTranslations({
+      lang: "es",
+      // 200 studies, the database path's maximum → 20 batches of 10.
+      items: Array.from({ length: 200 }, (_, i) => ({ nctId: `NCT${String(i).padStart(8, "0")}`, title: "t", conditions: [] })),
+      signal: new AbortController().signal,
+      onUpdate: () => {},
+      request,
+    });
+    expect(MAX_BATCHES_IN_FLIGHT).toBe(5);
+    expect(request).toHaveBeenCalledTimes(5);
+    pending[0](null);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(request).toHaveBeenCalledTimes(6);
+    // Drain everything: every batch is eventually sent, never more than 5 at a time.
+    for (let i = 1; i < pending.length; i++) {
+      pending[i](null);
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    expect(request).toHaveBeenCalledTimes(20);
+  });
+
+  it("sends no further batches after abort", async () => {
+    const controller = new AbortController();
+    const pending: Array<(v: Map<string, TitleTranslation> | null) => void> = [];
+    const request = vi.fn(
+      () => new Promise<Map<string, TitleTranslation> | null>((resolve) => pending.push(resolve)),
+    );
+    startTitleTranslations({
+      lang: "zh",
+      items: Array.from({ length: 100 }, (_, i) => ({ nctId: `NCT${String(i).padStart(8, "0")}`, title: "t", conditions: [] })),
+      signal: controller.signal,
+      onUpdate: () => {},
+      request,
+    });
+    controller.abort();
+    pending.forEach((resolve) => resolve(null));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(request).toHaveBeenCalledTimes(5);
+  });
+
+  it("keeps going after a request rejects", async () => {
+    let calls = 0;
+    const request = vi.fn(async () => {
+      calls++;
+      if (calls === 1) throw new Error("network");
+      return new Map([[`ID${calls}`, { title: "x", conditions: [] }]]);
+    });
+    const updates: number[] = [];
+    startTitleTranslations({
+      lang: "vi",
+      items: ["A", "B", "C"].map((nctId) => ({ nctId, title: nctId, conditions: [] })),
+      signal: new AbortController().signal,
+      onUpdate: (m) => updates.push(m.size),
+      request,
+      batchSize: 1,
+      maxInFlight: 1,
+    });
+    for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(updates).toEqual([1, 2]);
   });
 
   it("reports nothing after abort (language switch / unmount)", async () => {

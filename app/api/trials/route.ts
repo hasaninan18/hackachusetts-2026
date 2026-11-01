@@ -5,7 +5,10 @@
 // (structure.md: pure logic in lib/, I/O in routes). Flow per Requirement 1:
 //
 //   validate lat/lon (400, no upstream call if bad)
-//     → normalizeRadius → buildSearchUrl
+//     → normalizeRadius
+//     → [database configured (lib/db/client.ts)] searchTrials → { trials, total } JSON,
+//       or on any database error continue below
+//     → buildSearchUrl
 //     → cachedFetchJson (10-min cache, keyed by the upstream URL)
 //     → slimStudy(origin) per study → drop nulls → withinRadius → rankBySiteDistance
 //     → { trials, total } JSON.
