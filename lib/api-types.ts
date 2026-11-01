@@ -36,6 +36,8 @@ export interface CtgLocation {
   city?: string;
   state?: string;
   zip?: string;
+  /** e.g. "United States"; sites outside the US never match a region. */
+  country?: string;
   /** Per-site recruitment status; filter to "RECRUITING" (BACKEND_NOTES.md §2). */
   status?: string;
   geoPoint?: CtgGeoPoint;

@@ -41,7 +41,7 @@ Search, transit and the English UI work without AWS credentials; translation and
 - Not medical advice. The study team decides eligibility.
 
 ## Team plan
-Tasks and prompts: [docs/TASKS.md](docs/TASKS.md) · Plan: [docs/PLAN.md](docs/PLAN.md) · Demo data and prompt rules: [docs/DEMO_DATA.md](docs/DEMO_DATA.md)
+Tasks and prompts: [docs/TASKS.md](docs/TASKS.md) · Plan: [docs/PLAN.md](docs/PLAN.md) · National expansion: [docs/NATIONAL_PLAN.md](docs/NATIONAL_PLAN.md) · Demo data and prompt rules: [docs/DEMO_DATA.md](docs/DEMO_DATA.md)
 
 ## How we used Kiro
 
