@@ -30,3 +30,9 @@ Right now `lib/data.ts` calls `/api/trials` over HTTP from server components. On
 - Ages: `"18 Years"`, `"6 Months"`, missing. The frontend expects years as a number or `null` (6 months → 0.5).
 - `/api/simplify` must return **3–6 questions** with `ruleOutIf`. The UI treats "not sure" as never ruling out, so a question phrased backwards ends up as an "ask the team". Prompt the model for questions where a single yes/no clearly maps to one inclusion or exclusion line, and keep NCT IDs, phone numbers and emails verbatim in translations.
 - `GET /api/trials/[nct]` → 404 for an unknown NCT. The UI shows a not-found page.
+
+## 8. Optional NPI-only directory — planning only
+
+Read [DOCTORS_REDUCED_PLAN.md](DOCTORS_REDUCED_PLAN.md), Phases 0/1/4. Hasan's separate Kiro agent owns new `lib/npi.ts` and `/api/doctors`, after core simplify/radius work is safe. The draft contract must be agreed with Neil before coding. Use documented CMS NPI v2.1 queries, bounded retrieval and actual MA practice-location filtering; compute approximate ZIP distances with existing geo data. Capped candidate queries cannot prove exhaustive nearest-doctor coverage. Do not reuse ZIP centroids for office walking/transit directions or infer credentials, availability, insurance, trial affiliation or referral access.
+
+No HRSA, per-provider MBTA, exact geocoding, or additional data-source work in the reduced release. The original larger backend proposal is [reserved after competition](post-competition/find-a-doctor-full/backend-notes.md). The 4:15 PM completion gate and 5 PM freeze apply.
