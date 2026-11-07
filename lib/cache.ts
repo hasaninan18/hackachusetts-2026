@@ -33,9 +33,15 @@ export function setCached<T>(key: string, value: T, now: number): void {
   store.set(key, { value, storedAt: now });
 }
 
+// In-flight fetches, keyed like the store. Concurrent cold requests for the same key share
+// one fetch instead of each hitting the upstream (a big live search is several pages).
+const inflight = new Map<string, Promise<unknown>>();
+
 /**
  * Serve a fresh (< 10 min) entry for `key` without calling `fetcher`.
- * On a miss or stale entry, call `fetcher`, cache the result and return it.
+ * On a miss or stale entry, call `fetcher`, cache the result and return it. While that call
+ * is pending, other callers for the same `key` wait on it rather than starting their own,
+ * and get the same value or the same error.
  * If `fetcher` throws, fall back to the cached entry ONLY when it is still fresh
  * (< CACHE_TTL_MS old relative to `now`); an expired entry is never served, so the
  * error propagates rather than returning data older than the 10-minute policy.
@@ -48,17 +54,26 @@ export async function cachedFetchJson<T>(
   const fresh = getCached<T>(key, now);
   if (fresh !== undefined) return fresh;
 
-  try {
-    const value = await fetcher();
-    setCached(key, value, now);
-    return value;
-  } catch (err) {
-    // Freshness is enforced even on failure: only serve a fallback that is still
-    // within the 10-minute window. An expired entry is dropped and the error wins,
-    // so callers never receive data older than CACHE_TTL_MS.
-    const fallback = getCached<T>(key, now);
-    if (fallback !== undefined) return fallback;
-    store.delete(key);
-    throw err;
-  }
+  const pending = inflight.get(key) as Promise<T> | undefined;
+  if (pending !== undefined) return pending;
+
+  const run = (async () => {
+    try {
+      const value = await fetcher();
+      setCached(key, value, now);
+      return value;
+    } catch (err) {
+      // Freshness is enforced even on failure: only serve a fallback that is still
+      // within the 10-minute window. An expired entry is dropped and the error wins,
+      // so callers never receive data older than CACHE_TTL_MS.
+      const fallback = getCached<T>(key, now);
+      if (fallback !== undefined) return fallback;
+      store.delete(key);
+      throw err;
+    } finally {
+      inflight.delete(key);
+    }
+  })();
+  inflight.set(key, run);
+  return run;
 }
