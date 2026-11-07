@@ -1,0 +1,547 @@
+{
+  "_about": "Labeled fixtures for the TrialPath English-only flag (Feature 1). Real text is verbatim from ClinicalTrials.gov API v2, fetched 2026-10-27. Synthetic cases are hand-written adversarial checks and are marked source=synthetic.",
+  "_query": "https://clinicaltrials.gov/api/v2/studies?filter.overallStatus=RECRUITING&query.locn=AREA[LocationState]Massachusetts&query.term=AREA[EligibilityCriteria](english)&fields=NCTId,EligibilityCriteria&pageSize=1000&countTotal=true",
+  "_totalCount": 512,
+  "_expect": "flag = detector MUST return required; no-flag = detector MUST NOT return required (hard safety assertion); either = real requirement a conservative detector may miss (not asserted, reported in the coverage table).",
+  "_lineFixtureUsage": "Wrap each line as '<Inclusion|Exclusion> Criteria:\\n\\n* ' + line using its section, then call detectEnglishRequirement on that text.",
+  "_expectReason": "For no-flag study/synthetic cases, the reason the detector should report: no-mention | no-sections | other-language-allowed | not-about-patient | unclear. Asserting the reason is optional; asserting no-flag is mandatory.",
+  "lines": [
+    {
+      "id": "real-line-01",
+      "source": "registry",
+      "nctId": "NCT05241990",
+      "section": "exclusion",
+      "line": "* Unable to speak English",
+      "truth": "requires-english",
+      "expect": "flag",
+      "note": "exclusion phrased as inability"
+    },
+    {
+      "id": "real-line-02",
+      "source": "registry",
+      "nctId": "NCT05762705",
+      "section": "inclusion",
+      "line": "* English speaking",
+      "truth": "requires-english",
+      "expect": "flag",
+      "note": ""
+    },
+    {
+      "id": "real-line-03",
+      "source": "registry",
+      "nctId": "NCT07230990",
+      "section": "inclusion",
+      "line": "* Must be able to read, speak and understand English",
+      "truth": "requires-english",
+      "expect": "flag",
+      "note": ""
+    },
+    {
+      "id": "real-line-04",
+      "source": "registry",
+      "nctId": "NCT06686680",
+      "section": "exclusion",
+      "line": "* Non-English speaking individuals",
+      "truth": "requires-english",
+      "expect": "flag",
+      "note": "exclusion of non-English speakers"
+    },
+    {
+      "id": "real-line-05",
+      "source": "registry",
+      "nctId": "NCT07112287",
+      "section": "inclusion",
+      "line": "* Ability to understand and provide a signed and completed consent document in English.",
+      "truth": "requires-english",
+      "expect": "flag",
+      "note": "consent in English"
+    },
+    {
+      "id": "real-line-06",
+      "source": "registry",
+      "nctId": "NCT06929442",
+      "section": "exclusion",
+      "line": "2. Not proficient in English",
+      "truth": "requires-english",
+      "expect": "flag",
+      "note": "numbered bullet '2.' is not stripped by sectionLines"
+    },
+    {
+      "id": "real-line-07",
+      "source": "registry",
+      "nctId": "NCT07317336",
+      "section": "inclusion",
+      "line": "* English-speaking",
+      "truth": "requires-english",
+      "expect": "flag",
+      "note": "hyphenated"
+    },
+    {
+      "id": "real-line-08",
+      "source": "registry",
+      "nctId": "NCT07009704",
+      "section": "exclusion",
+      "line": "* Unable to read or write English",
+      "truth": "requires-english",
+      "expect": "flag",
+      "note": ""
+    },
+    {
+      "id": "real-line-09",
+      "source": "registry",
+      "nctId": "NCT07460947",
+      "section": "exclusion",
+      "line": "* No individuals who are not proficient in English will be recruited for the study",
+      "truth": "requires-english",
+      "expect": "flag",
+      "note": "double negative: 'No individuals who are not proficient'"
+    },
+    {
+      "id": "real-line-10",
+      "source": "registry",
+      "nctId": "NCT07787156",
+      "section": "exclusion",
+      "line": "* Language other than English",
+      "truth": "requires-english",
+      "expect": "flag",
+      "note": "'language other than English' with no other language listed"
+    },
+    {
+      "id": "real-line-11",
+      "source": "registry",
+      "nctId": "NCT06191965",
+      "section": "exclusion",
+      "line": "* Not English speaking. The questionnaires, instruments, cognitive assessments used in this research study have not been translated, validated, or studied extensively in non-English-speaking individuals. For this reason, we will not enroll individuals who do not speak English to maintain validity in the study.",
+      "truth": "requires-english",
+      "expect": "either",
+      "note": "real requirement, but the line also mentions translation; a conservative detector may skip it"
+    },
+    {
+      "id": "real-line-12",
+      "source": "registry",
+      "nctId": "NCT06968390",
+      "section": "inclusion",
+      "line": "* English proficiency sufficient for informed consent, questionnaires/tasks, and treatment",
+      "truth": "requires-english",
+      "expect": "flag",
+      "note": ""
+    },
+    {
+      "id": "real-line-13",
+      "source": "registry",
+      "nctId": "NCT05998330",
+      "section": "exclusion",
+      "line": "1\\. Inability to comprehend English",
+      "truth": "requires-english",
+      "expect": "flag",
+      "note": "escaped markdown bullet '1\\.'; in the real record this line is in a CAREGIVER section"
+    },
+    {
+      "id": "real-line-14",
+      "source": "registry",
+      "nctId": "NCT06350409",
+      "section": "exclusion",
+      "line": "4. Adolescents who cannot speak or read English at a 4th-grade level as determined by medical or research staff.",
+      "truth": "requires-english",
+      "expect": "either",
+      "note": "real requirement, but mentions 'research staff'; a subject-qualifier rule may skip it"
+    },
+    {
+      "id": "real-line-15",
+      "source": "registry",
+      "nctId": "NCT05734313",
+      "section": "inclusion",
+      "line": "* English- or Spanish-speaking",
+      "truth": "not-english-only",
+      "expect": "no-flag",
+      "note": "English OR Spanish"
+    },
+    {
+      "id": "real-line-16",
+      "source": "registry",
+      "nctId": "NCT05784922",
+      "section": "inclusion",
+      "line": "* Must speak English or Spanish",
+      "truth": "not-english-only",
+      "expect": "no-flag",
+      "note": "English OR Spanish"
+    },
+    {
+      "id": "real-line-17",
+      "source": "registry",
+      "nctId": "NCT05786417",
+      "section": "exclusion",
+      "line": "* Primary language other than English or Spanish",
+      "truth": "not-english-only",
+      "expect": "no-flag",
+      "note": "'other than English or Spanish' = Spanish also accepted"
+    },
+    {
+      "id": "real-line-18",
+      "source": "registry",
+      "nctId": "NCT06507930",
+      "section": "inclusion",
+      "line": "* Non-English language allowed but interpreter services must be present at each meeting and will be coordinated by scheduling team",
+      "truth": "not-english-only",
+      "expect": "no-flag",
+      "note": "non-English allowed with interpreter"
+    },
+    {
+      "id": "real-line-19",
+      "source": "registry",
+      "nctId": "NCT04434040",
+      "section": "inclusion",
+      "line": "* Ability to understand and the willingness to sign a written informed consent document. Non-English speakers are eligible to participate but will be excluded from surveys/questionnaires unless the participant has a proxy available for translation.",
+      "truth": "not-english-only",
+      "expect": "no-flag",
+      "note": "'Non-English speakers are eligible'"
+    },
+    {
+      "id": "real-line-20",
+      "source": "registry",
+      "nctId": "NCT06042569",
+      "section": "inclusion",
+      "line": "* Patients who do not speak or read English are eligible as long as adequate interpreter services are available or the surveys are available in the preferred language (i.e. the Geriatric Assessment \\[GA\\] and Patient Reported Outcomes \\[PRO\\] surveys are available in many languages)",
+      "truth": "not-english-only",
+      "expect": "no-flag",
+      "note": "non-English speakers eligible with interpreter"
+    },
+    {
+      "id": "real-line-21",
+      "source": "registry",
+      "nctId": "NCT06406114",
+      "section": "inclusion",
+      "line": "3. English speaking or non-English speaking with translation services available.",
+      "truth": "not-english-only",
+      "expect": "no-flag",
+      "note": "translation services"
+    },
+    {
+      "id": "real-line-22",
+      "source": "registry",
+      "nctId": "NCT03882073",
+      "section": "exclusion",
+      "line": "Patients will not be excluded from participation in the study on the grounds of minority status, religious status, race or gender. Non-English speaking patients will not be excluded from the study; interpreters will be made available to them for translation of both verbal interactions and written documents.",
+      "truth": "not-english-only",
+      "expect": "no-flag",
+      "note": "sits in the EXCLUSION section but says non-English speakers will NOT be excluded"
+    },
+    {
+      "id": "real-line-23",
+      "source": "registry",
+      "nctId": "NCT06987890",
+      "section": "inclusion",
+      "line": "* Able to read questions in English or willing to complete survey questionnaires with the assistance of an interpreter.",
+      "truth": "not-english-only",
+      "expect": "no-flag",
+      "note": "interpreter allowed"
+    },
+    {
+      "id": "real-line-24",
+      "source": "registry",
+      "nctId": "NCT05375643",
+      "section": "exclusion",
+      "line": "* Speaks a language other than English, Spanish, Haitian Creole, Russian, Portuguese, Arabic, or Traditional Chinese",
+      "truth": "not-english-only",
+      "expect": "no-flag",
+      "note": "seven languages accepted"
+    },
+    {
+      "id": "real-line-25",
+      "source": "registry",
+      "nctId": "NCT06716580",
+      "section": "inclusion",
+      "line": "* Aim 3: Able to complete and understand the study's informed consent and participate in a focus group in English, Mandarin, Vietnamese, or Spanish.",
+      "truth": "not-english-only",
+      "expect": "no-flag",
+      "note": "English, Mandarin, Vietnamese or Spanish"
+    },
+    {
+      "id": "real-line-26",
+      "source": "registry",
+      "nctId": "NCT04893109",
+      "section": "inclusion",
+      "line": "* Must be able to read and understand English in order to participate in the quality of life surveys. If patient does not read and understand English, the patient is still eligible, but cannot participate in the quality of life surveys.",
+      "truth": "not-english-only",
+      "expect": "no-flag",
+      "note": "English only for surveys; 'still eligible' otherwise"
+    },
+    {
+      "id": "real-line-27",
+      "source": "registry",
+      "nctId": "NCT04916210",
+      "section": "inclusion",
+      "line": "6. Fluent in English or Spanish prior to stroke onset",
+      "truth": "not-english-only",
+      "expect": "no-flag",
+      "note": "English OR Spanish"
+    },
+    {
+      "id": "real-line-28",
+      "source": "registry",
+      "nctId": "NCT07123649",
+      "section": "inclusion",
+      "line": "* Clinician must be able to read, speak, and write in English",
+      "truth": "ambiguous",
+      "expect": "no-flag",
+      "note": "requirement is on the CLINICIAN, not the patient"
+    },
+    {
+      "id": "real-line-29",
+      "source": "registry",
+      "nctId": "NCT07421830",
+      "section": "inclusion",
+      "line": "* Parent or caregivers must be able to read and write in English.",
+      "truth": "ambiguous",
+      "expect": "no-flag",
+      "note": "requirement is on the parent/caregiver"
+    },
+    {
+      "id": "real-line-30",
+      "source": "registry",
+      "nctId": "NCT05066178",
+      "section": "inclusion",
+      "line": "* Lives in an environment where child is exposed to English at least 50% of the time",
+      "truth": "ambiguous",
+      "expect": "no-flag",
+      "note": "exposure to English, not the person's ability"
+    },
+    {
+      "id": "real-line-31",
+      "source": "registry",
+      "nctId": "NCT05836987",
+      "section": "inclusion",
+      "line": "2. English speaking participants. Spanish-only speakers may be included in the future at select sites appropriately translated.",
+      "truth": "ambiguous",
+      "expect": "no-flag",
+      "note": "English now, Spanish 'may be included in the future'"
+    },
+    {
+      "id": "real-line-32",
+      "source": "registry",
+      "nctId": "NCT06564025",
+      "section": "inclusion",
+      "line": "* cannot participate in intervention in English Inclusion criteria for adolescents",
+      "truth": "ambiguous",
+      "expect": "no-flag",
+      "note": "heading merged into a bullet; an 'inclusion' line with exclusion wording. Naive section logic reverses its meaning"
+    },
+    {
+      "id": "real-line-33",
+      "source": "registry",
+      "nctId": "NCT06721819",
+      "section": "exclusion",
+      "line": "English language Limitations",
+      "truth": "ambiguous",
+      "expect": "either",
+      "note": "vague 'English language Limitations'"
+    }
+  ],
+  "studies": [
+    {
+      "id": "real-study-01",
+      "source": "registry",
+      "nctId": "NCT07230990",
+      "criteriaText": "Inclusion Criteria:\n\n* Age 18-65 years\n* Must be able to read, speak and understand English\n* DSM-5 diagnosis of major depressive disorder, experiencing a moderate to severe depressive episode (Hamilton Depression Rating Scale score greater than or equal to 17 points)\n* Must be judged by study staff to be capable of completing the study procedures\n* Participants will be in stable outpatient treatment with no recent (within the past 30 days) hospitalizations or changes in their medication regimens\n\nExclusion Criteria:\n\n* DSM-5 moderate to severe substance use disorder within the past three months, based on Structured Clinical Interview for DSM-5\n* Conditions that might result in increased risks of side effects or complications from rTMS or MRI, including:\n\n  * History of fainting spells of unknown or undetermined etiology that might constitute seizures\n  * Diagnosis of epilepsy with the exception of a single seizure of benign etiology (e.g., febrile seizures) in the judgment of a board-certified neurologist\n  * Current or past history of a neurological disorder, such as stroke, a progressive neurologic disease, or intracranial brain lesion(s); and history of previous neurosurgery or head trauma that resulted in residual neurologic impairment\n  * Any unstable medical condition\n  * Any metal in the brain or skull (excluding dental fillings) unless cleared by the responsible covering MD\n  * Any devices which could be affected by TMS or MRI such as a pacemaker, medication pump, nerve stimulator, cochlear implant, TENS unit, ventriculo-peritoneal shunt unless cleared by the responsible covering MD\n  * Pregnancy; All female participants will be required to have a pregnancy test; any participant who is pregnant will not be enrolled in the study. The pregnancy test will be administered by study staff trained to administer point of care pregnancy testing that complies with institutional laboratory policies",
+      "expect": "flag",
+      "expectReason": null,
+      "note": ""
+    },
+    {
+      "id": "real-study-02",
+      "source": "registry",
+      "nctId": "NCT05762705",
+      "criteriaText": "Inclusion Criteria:\n\n* 15-34 years old\n* English speaking\n* Initiated PrEP in the last 30 days or re-initiated PrEP after not taking PrEP for at least 1 month\n* HIV negative as per clinician and clinical record\n* Able to give consent/assent and not impaired by cognitive or medical limitations as per clinical assessment.\n\nExclusion Criteria:\n\n* None",
+      "expect": "flag",
+      "expectReason": null,
+      "note": ""
+    },
+    {
+      "id": "real-study-03",
+      "source": "registry",
+      "nctId": "NCT07009704",
+      "criteriaText": "Inclusion Criteria:\n\n* Pregnant (\\<20w0d)\n* At least 18 years to 45 years old\n* BMI \\>25, personal history of GDM, or first-degree family member with type II diabetes\n* Comfortable conversing in English\n* Own a smartphone and willing to use the CGM app and Signal\n* Receiving prenatal care and planning to deliver at Tufts Medicine (Boston)\n* Signed the consent form\n* Currently located in the United States\n\nExclusion Criteria:\n\n* Current pregnancy a multiple gestation (e.g., twins)\n* Smoked during this current pregnancy\n* Active hepatitis or HIV infection\n* Current pregnancy have any documented fetal congenital anomalies\n* Current history of heroin, cocaine, crack, LSD, or methamphetamines\n* Current history of alcohol abuse\n* Previous gastric bypass\n* Shift work that alters the sleep/wake periods\n* Have known rheumatological or chronic inflammatory state (i.e., arthritis, inflammatory bowel disease)?\n* Chronic illnesses, including diabetes and dialysis, that require regular medication use\n* Uncontrolled hypothyroidism\n* Known culture of positive chorioamnionitis?\n* An adult who is unable to consent (e.g., cognitively impaired adults)\n* Ward of the state\n* Unable to read or write English",
+      "expect": "flag",
+      "expectReason": null,
+      "note": "two lines: inclusion 'Comfortable conversing in English' + exclusion 'Unable to read or write English'"
+    },
+    {
+      "id": "real-study-04",
+      "source": "registry",
+      "nctId": "NCT06686680",
+      "criteriaText": "Inclusion Criteria:\n\n* Previous ACL reconstruction using an autograft or allograft in the knee with PTOA\n* Minimum of one year following ACL reconstruction surgery\n* Between ages of 18 and 55\n* No clear contraindication to complete protocol including mechanical symptoms which would limit ability to complete the study\n* Score on KOOS for 2 of 4 domains (pain, symptoms, activities of daily living (ADL), quality of life (QOL)) of 85 or lower\n* Primary pain is coming from the knee\n* Diagnosis of PTOA based on clinical diagnosis and confirmation with radiographic evidence by a medical professional prior to study enrollment. If individuals have suspected OA based on impairments such as pain, they must have a score on KOOS for 2 of 4 domains (pain, symptoms, activities of daily living (ADL), quality of life (QOL)) of 85 or lower to participate in the study.\n\nExclusion Criteria:\n\n* Have previously received injections to the knee joint within the past 3 months\n* Women who are pregnant or those who are planning to become pregnant. This is due to the fact that pregnancy will reduce participants activity after the treatment and the safety concerns related to shockwave treatment. - Participants with neuropathy affecting sensation to pain\n* Participants with a known underlying cardiac disease that could be affected by shockwave therapy\n* Chronic rheumatological conditions, immunodeficiency, severe asthma, connective tissue disorder (i.e. Ehlers-Danlos Syndrome), or other medical conditions (ex. active malignancy, severe asthma) outside of PTOA that are known to impact inflammatory state or requiring chronic use of oral or intravenous immune modulatory medications. Asthma requiring use of inhalers only is not an exclusion criteria\n* Neuropathy diagnosis that can affect response to pain\n* No active use of oral steroids or anti-inflammatories at the time of enrollment\n* Have bilateral ACL injury or reconstruction surgery, or have had ACL revision surgery\n* No active malignancy and at least five years in remission\n* Previous ESWT treatment using study treatment devices for management of knee osteoarthritis\n* Have a pacemaker, bone screws, or any other metal implants that would prohibit participation in an MRI scan or EWST\n* Non-English speaking individuals",
+      "expect": "no-flag",
+      "expectReason": "no-sections",
+      "note": "A real requirement ('Non-English speaking individuals' in exclusion), but a bullet says 'is not an exclusion criteria', so the repo's splitSections sees two exclusion headings and returns no sections. Fail closed. The same line passes as a single-line fixture (real-line-04)."
+    },
+    {
+      "id": "real-study-05",
+      "source": "registry",
+      "nctId": "NCT06406114",
+      "criteriaText": "Inclusion Criteria:\n\n1. Age 18-70 years old.\n2. Reaction history consistent with a potential immediate hypersensitivity reaction (pruritus, urticaria, erythema, angioedema, bronchospasm, wheezing, shortness of breath, anaphylaxis, or hypotension) to cefazolin, ceftazidime, ceftriaxone, cefepime, cephalexin, cefaclor, cefadroxil, cefuroxime, cefpodoxime, cefdinir, or cefixime.\n3. English speaking or non-English speaking with translation services available.\n\nExclusion Criteria:\n\n1. Severe concomitant medical condition (e.g., unstable coronary artery disease, congestive heart failure, severe chronic obstructive pulmonary disease, poorly controlled asthma, chronic renal failure, cirrhosis, or end-stage liver disease.)\n2. History of Clostridioides difficile infection\n3. Chronic spontaneous urticaria or systemic mastocytosis\n4. Incident reaction required cardiopulmonary resuscitation\n5. Reaction to 2 or more cephalosporin antibiotics\n6. Active infection or antibiotic treatment within 7 days\n7. Treatment with systemic antihistamines or corticosteroids within 7 days\n8. Treatment with omalizumab or dupilumab within 60 days\n9. Significant immunosuppression\n10. Treatment with a beta-blocker or ACE inhibitor within 7 days\n11. Use of investigational drugs within 60 days of participation\n12. Anaphylaxis in the last 30 days\n13. Penicillin anaphylaxis within the past year confirmed with positive penicillin skin tests\n14. Prison or jail inmates, pregnant women, severe cognitive impairment\n15. Current, diagnosed, mental illness or current, diagnosed, or self-reported drug or alcohol abuse that, in the opinion of the investigator, would interfere with the participant's ability to comply with study requirements\n16. Past or current medical problems or findings from physical examination or laboratory testing that are not listed above, which, in the opinion of the investigator, may pose additional risks from participation in the study, may interfere with the participant's ability to comply with study requirements or that may impact the quality or interpretation of the data obtained from the study.\n17. Inability or unwillingness of a participant to give written informed consent or comply with study protocol",
+      "expect": "no-flag",
+      "expectReason": "other-language-allowed",
+      "note": ""
+    },
+    {
+      "id": "real-study-06",
+      "source": "registry",
+      "nctId": "NCT05784922",
+      "criteriaText": "Inclusion Criteria:\n\n* Must be 50-80 years old\n* Are a current or former smoker (quit within 15 years, or a cumulative smoking status of \\> 20 pack-years)\n* Not currently enrolled in Lung Cancer Screening\n* Must speak English or Spanish\n\nExclusion Criteria:\n\n* Has a clinical cognitive inability to provide informed consent for participation in the study or complete a brief survey\n* Currently diagnosed with lung cancer\n* Currently enrolled in lung cancer screening\n* Have participated in the focus groups discussions from Aim 1",
+      "expect": "no-flag",
+      "expectReason": "other-language-allowed",
+      "note": ""
+    },
+    {
+      "id": "real-study-07",
+      "source": "registry",
+      "nctId": "NCT04434040",
+      "criteriaText": "Inclusion Criteria:\n\n* Pathologically confirmed residual invasive breast cancer, in the breast and/or lymph node(s), following neoadjuvant chemotherapy. In the absence of residual invasive disease in the breast, lymph node must contain at least 2mm of invasive disease.\n* HER2 negative in primary tumor pre-treatment by local pathology assessed according to current ASCO/CAP guidelines:\n\n  * In situ hybridization non-amplified (ratio of HER2 to CEP17 \\< 2.0 or single probe average HER2 gene copy number \\< 4 signals/cell), OR\n  * Immunohistochemistry (IHC) 0 or IHC 1+.\n  * NOTE: If more than one test result is available and not all results meet the inclusion criterion definition, all results should be discussed with the Principal Investigator to establish eligibility\n* ER and PR negative in primary tumor pre-treatment defined as \\< 10% of cells expressing hormonal receptors via IHC analysis by local laboratory assessment.\n* Patients must have received neoadjuvant chemotherapy prior to breast surgery.\n* Patients must be within 4 months of completion of all locoregional therapy (either last surgery or last dose of radiation, whichever is later) . Definitive breast surgery must have been performed and includes lumpectomy or mastectomy with pathologically clear margins (i.e. no ink on tumor). For patients undergoing lumpectomy, this must be followed by whole breast irradiation. Definitive surgery also includes axillary surgery, either sentinel lymph node biopsy or axillary lymph node dissection at the discretion of the attending surgeon.\n* Evidence of ctDNA in blood sample collected after completion of all local and systemic neoadjuvant therapy (preoperative chemotherapy, surgery and radiation), confirmed by central testing. Detection of any tumor specific mutations (TSMs) within the sample will be considered positive for purposes of study eligibility.\n* Concurrent receipt of bone modifying agents (bisphosphonates or rank-ligand inhibitors)is allowed.\n* Prior treatment with an immune checkpoint inhibitor in the neoadjuvant setting is permitted.\n* ECOG Performance Status of 0 or 1\n* Men and women, age ≥ 18 years\n* Adequate hematologic and organ function defined by the following:\n\n  * ANC ≥ 1.5 × 109/L (1500/μL) without granulocyte colony-stimulating factor support\n  * WBC count ≥ 2.5 × 109/L (2500/μL)\n  * Absolute Lymphocyte count ≥ 0.5 × 109/L (500/μL)\n  * Platelet count ≥ 100 × 109/L (100,000/μL)\n  * Hemoglobin ≥ 90 g/L (9.0 g/dL), with or without transfusion\n  * AST, ALT, and alkaline phosphatase (ALP) ≤ 2.5 × institutional upper limit of normal (ULN).\n  * Serum bilirubin ≤ 1.5 × institutional ULN with the following exception:\n\n    * Patients with known Gilbert syndrome: serum bilirubin level ≤ 3 × institutional ULN\n  * Serum creatinine \\< 1.5 x institutional ULN\n  * Creatinine clearance ≥30 mL/min as assessed by the Cockcroft-Gault equation\n  * Serum albumin ≥ 25 g/L (2.5 g/dL)\n  * For patients not receiving therapeutic anticoagulation: INR or aPTT ≤ 1.5 × institutional ULN\n  * For patients receiving therapeutic anticoagulation: stable anticoagulant regimen\n* Women of childbearing potential (pre-menopausal) must have a negative serum or urine pregnancy test within 7 days prior to start of therapy. A woman is defined as premenopausal if she is less than 12 months from last menstrual period with no identified cause other than menopause (medication induced amenorrhea is not acceptable). Pregnancy test is not required in women who are surgically sterile via bilateral salpingooophorectomy or hysterectomy.\n* Women of childbearing potential and men must agree to use adequate contraception for the duration of protocol treatment and for 6 months after last dose of atezolizumab and 6 months after last dose of sacituzumab govitecan, whichever is later. Hormonal contraceptives are not acceptable (see section 5.6).\n* Ability to understand and the willingness to sign a written informed consent document. Non-English speakers are eligible to participate but will be excluded from surveys/questionnaires unless the participant has a proxy available for translation.\n\nExclusion Criteria:\n\n* Prior therapy with sacituzumab govitecan, irinotecan, or any topoisomerase I-containing antibody-drug conjugates at any time for early stage disease.\n* Receipt of adjuvant chemotherapy (all chemotherapy prior to registration must have occurred in the preoperative setting)\n* Prior hypersensitivity to atezolizumab or the excipients of atezolizumab or sacituzumab govitecan\n* Clinical or radiographic evidence of metastatic disease\n* Residual DCIS or LCIS alone without invasive cancer OR pT0N0i and pT0N1mic residual disease\n* Concurrent enrollment on another investigational therapy trial\n* Prior treatment-related toxicity must be resolved to ≤ Grade 1 prior to study enrollment with the exception of alopecia and peripheral neuropathy, prior to study enrollment.\n* Major surgical procedure, other than for diagnosis, within 4 weeks prior to initiation of study treatment, or anticipation of need for a major surgical procedure during the study\n* Treatment with therapeutic oral or IV antibiotics within 2 weeks prior to initiation of study treatment Patients receiving prophylactic antibiotics (e.g., to prevent a urinary tract infection or chronic obstructive pulmonary disease exacerbation) are eligible for the study.\n* Intercurrent illness including, but not limited to: ongoing or active infection requiring systemic therapy, active tuberculosis, serious liver disease such as cirrhosis, active bleeding diathesis, uncontrolled Type I or Type II diabetes mellitus, Grade ≥ 2 uncontrolled or untreated hypercholesterolemia, Hypertriglyceridemia or hypercalcemia\n* Cardiovascular disease including: congestive heart failure of New York Heart Association Class III or IV, myocardial infarction (\\<6 months prior to enrollment) unstable angina pectoris, serious uncontrolled cardiac arrhythmia or any other clinically significant cardiac disease, in the opinion of the investigator\n* History of idiopathic pulmonary fibrosis, organizing pneumonia (e.g., bronchiolitis obliterans), drug-induced pneumonitis, or idiopathic pneumonitis, or evidence of active pneumonitis on screening chest computed tomography scan. History of radiation pneumonitis in the radiation field (fibrosis) is permitted.\n* Active (acute or chronic) autoimmune disease of any type except hypothyroidism on a thyroid-replacement hormone, celiac disease, or well-controlled psoriasis, eczema, lichen simplex chronicus or vitiligo.\n* Impairment of gastrointestinal function or active gastrointestinal disease that may significantly alter the absorption of the study agents (e.g., ulcerative disease, uncontrolled nausea(\\> grade 2), vomiting (\\> grade 2), diarrhea (\\> grade 2), malabsorption syndrome or small bowel resection).\n* Congenital long QT syndrome or screening QT interval corrected through use of Fridericia's formula \\>480 ms.\n* Participants known to be positive for the human immunodeficiency virus (HIV), Hepatitis B antigen (HepBsAg), or Hepatitis C virus (HCV) RNA are ineligible.\n* History of prior invasive breast cancer in either breast.\n* Participants with history of prior malignancy other than breast cancer are eligible if they have been disease-free for at least 5 years prior to enrollment with the exception of patients with thyroid cancer that has been definitively treated without spread to regional lymph nodes.\n* Treatment with strong strong UGT1A1 inhibitor or inducer within 4 weeks or 5 drug-elimination half-lives, whichever is longer, prior to initiation of study drug.\n* Treatment with a live, attenuated vaccine within 4 weeks prior to initiation of study treatment, or anticipation of need for such a vaccine while on protocol treatment\n* Known allergy or hypersensitivity to any of the study drugs or any of their excipients, including chimeric or humanized antibodies or fusion proteins and Chinese hamster ovary cell products or recombinant human antibodies\n* Treatment with systemic immunosuppressive medication (including, but not limited to, corticosteroids, cyclophosphamide, azathioprine, methotrexate, thalidomide, and anti-tumor necrosis factor alpha agents) within 2 weeks prior to initiation of study treatment, or anticipation of need for systemic immunosuppressive medication during the course of the study, with the following exceptions:\n\n  * Patients who received acute, low-dose systemic immunosuppressant medication or a one-time pulse dose of systemic immunosuppressant medication (e.g., 48 hours of corticosteroids for a contrast allergy) are eligible. o Patients who received mineralocorticoids (e.g., fludrocortisone), corticosteroids for chronic obstructive pulmonary disease or asthma, or low-dose corticosteroids for orthostatic hypotension or adrenal insufficiency are eligible for the study.\n* Pregnant women are excluded from this study because the effects of sacituzumab govitecan and atezolizumab on a developing fetus are unknown. Breastfeeding should be discontinued prior to entry onto the study and for one month following the last dose of sacituzumab govitecan.",
+      "expect": "no-flag",
+      "expectReason": "other-language-allowed",
+      "note": "9k-char criteria; one long consent line opens the door"
+    },
+    {
+      "id": "real-study-08",
+      "source": "registry",
+      "nctId": "NCT07421830",
+      "criteriaText": "Inclusion Criteria:\n\n* Parents or caregivers (who are at least 18 years of age) of children with a diagnosis of autism.\n* The autism diagnosis for the child can be from a school or medical setting.\n* The parent or caregiver's child with autism must be between 2 years 11 months and 5 years, 11 months of age.\n* Parent or caregivers must be able to read and write in English.\n\nExclusion Criteria:\n\n* Parents or caregivers who do not have a child with autism.\n* Adults who do not have children.\n* Parents or caregivers who cannot read and write in English.",
+      "expect": "no-flag",
+      "expectReason": "not-about-patient",
+      "note": "participants are parents/caregivers; both English lines name them"
+    },
+    {
+      "id": "real-study-09",
+      "source": "registry",
+      "nctId": "NCT05241990",
+      "criteriaText": "Inclusion Criteria: Clinic Staff\n\n* Age \\> 18 years old\n* Confirmed to be clinic staff (clinical or administrative roles).\n* English speaking\n* Cognitively able to complete required survey or interview activities.\n\nExclusion Criteria Clinic Staff\n\n* Unable to speak English\n\nInclusion Criteria, Patients\n\n* Confirmed to be a person with HIV (PWH) receiving HIV care and participating in CNICS at one of the three clinic sites\n* Scoring AUDIT-C ≥3 for women or ≥4 for men, transgender women or men indicating unhealthy alcohol use.\n* Age ≥ 18 years old.\n* English speaking.\n* Cognitively able to participate in stepped care for unhealthy alcohol use.\n\nExclusion Criteria, Patients\n\n* Scoring AUDIT-C \\<3 for women or \\<4 for men or \\<4 for transgender women or men\n* Age \\< 18 years old\n* Participants cognitively unable to participate in the stepped care for unhealthy alcohol use.",
+      "expect": "no-flag",
+      "expectReason": "no-sections",
+      "note": "multiple cohort headings (clinic staff + patients): splitSections returns no sections, so fail closed even though patients need English"
+    },
+    {
+      "id": "real-study-10",
+      "source": "registry",
+      "nctId": "NCT06564025",
+      "criteriaText": "Inclusion criteria for fathers:\n\n* adult (18 or older)\n* father (biological, step, adopted, or foster) of a participating teen and\n* report regular contact with the teen\n* healthy enough to participate in online surveys, an online intervention, interactive activities (either online, over the phone or in-person) with the adolescent, and an online support group\n* speak English\n* have a reading level of 6th grade or above.\n\nExclusion criteria for fathers:\n\n* not a father (biological, step, adopted, or foster) of a participating high-school aged teen\n* under the age of 18\n* not in regular contact with their teen\n* cannot participate in intervention in English Inclusion criteria for adolescents\n* high-school aged child (biological, step, adopted, or foster) of a participating father\n* report regular contact with their father\n* healthy enough to participate in online surveys and interactive activities (either online, over the phone or in-person) with the father\n* have a reading level of 6th grade or above Exclusion criteria for adolescents\n* not in high school\n* not in regular contact with the father\n* not child (biological, step, adopted, or foster) of participating father\n* cannot participate in intervention in English",
+      "expect": "no-flag",
+      "expectReason": "no-sections",
+      "note": "duplicate 'Inclusion criteria for ...' headings, one merged into a bullet"
+    },
+    {
+      "id": "real-study-11",
+      "source": "registry",
+      "nctId": "NCT05998330",
+      "criteriaText": "Patient Inclusion Criteria:\n\n1. Hospitalized patient with a diagnosis of advanced liver disease, defined as cirrhosis with one of the following (new or ongoing) within the prior six months from date of consent:\n\n   * Ascites (requiring diuretics or serial large volume paracenteses)\n   * Spontaneous bacterial peritonitis\n   * Hepatic hydrothorax (requiring diuretics)\n   * Variceal bleed (with one or more occurrences)\n   * Overt hepatic encephalopathy (requiring medications)\n2. Ability to comprehend English\n\nPatient Exclusion Criteria:\n\n1. Prior history of liver transplantation\n2. Have uncontrolled hepatic encephalopathy, cognitive impairment, psychiatric disorder or other comorbid condition which the primary medical, hepatology, and/or transplant surgery teams believes prohibits the ability to provide informed consent\n3. Current or recent (within 5 years of receiving curative cancer treatment) history of extrahepatic malignancy (excluding non-melanoma skin cancer)\n4. Presence of hepatocellular carcinoma beyond Milan criteria\n5. Are already receiving hospice care\n6. Receive a score of \\<10 on the Simplified Animal Naming Test\n\nCaregiver Inclusion Criteria\n\n1. Adult caregiver (≥ 18 years of age)\n2. A relative or friend identified by the patient upon whom the patient relies for help and who likely is to be present in-person during hospitalizations or clinic appointments, or willing to participate by phone\n3. Ability to comprehend English and can complete questionnaires\n\nCaregiver Exclusion Criteria\n\n1\\. Inability to comprehend English",
+      "expect": "no-flag",
+      "expectReason": "no-sections",
+      "note": "separate patient and caregiver headings"
+    }
+  ],
+  "synthetic": [
+    {
+      "id": "synthetic-01",
+      "source": "synthetic",
+      "criteriaText": "Inclusion Criteria:\n\n* Adults 18 and older\n* Non-English speakers are welcome.",
+      "expect": "no-flag",
+      "expectReason": "other-language-allowed",
+      "note": "explicit welcome"
+    },
+    {
+      "id": "synthetic-02",
+      "source": "synthetic",
+      "criteriaText": "Inclusion Criteria:\n\n* English or Spanish versions of all surveys are available.",
+      "expect": "no-flag",
+      "expectReason": "other-language-allowed",
+      "note": "versions in two languages"
+    },
+    {
+      "id": "synthetic-03",
+      "source": "synthetic",
+      "criteriaText": "Inclusion Criteria:\n\n* Spanish or English",
+      "expect": "no-flag",
+      "expectReason": "other-language-allowed",
+      "note": "reversed order"
+    },
+    {
+      "id": "synthetic-04",
+      "source": "synthetic",
+      "criteriaText": "Inclusion Criteria:\n\n* Speaking English is not required.",
+      "expect": "no-flag",
+      "expectReason": "other-language-allowed",
+      "note": "negated requirement"
+    },
+    {
+      "id": "synthetic-05",
+      "source": "synthetic",
+      "criteriaText": "Inclusion Criteria:\n\n* Interpreters are provided for people who do not speak English.",
+      "expect": "no-flag",
+      "expectReason": "other-language-allowed",
+      "note": "interpreter"
+    },
+    {
+      "id": "synthetic-06",
+      "source": "synthetic",
+      "criteriaText": "Inclusion Criteria:\n\n* Adults 18 and older\n\nExclusion Criteria:\n\n* Patients who speak English.",
+      "expect": "no-flag",
+      "expectReason": "unclear",
+      "note": "exclusion line with no negation: literal reading is the opposite of a requirement; never guess"
+    },
+    {
+      "id": "synthetic-07",
+      "source": "synthetic",
+      "criteriaText": "Inclusion Criteria:\n\n* Unable to speak English.",
+      "expect": "no-flag",
+      "expectReason": "unclear",
+      "note": "inclusion line with negation: polarity contradiction (the reversed-meaning trap)"
+    },
+    {
+      "id": "synthetic-08",
+      "source": "synthetic",
+      "criteriaText": "* Must speak English.\n* Age 18 to 65.",
+      "expect": "no-flag",
+      "expectReason": "no-sections",
+      "note": "no headings at all"
+    },
+    {
+      "id": "synthetic-09",
+      "source": "synthetic",
+      "criteriaText": "Inclusion Criteria:\n\n* Must be able to read and speak English.\n\nExclusion Criteria:\n\n* None. Non-English speakers may join with an interpreter.",
+      "expect": "no-flag",
+      "expectReason": "other-language-allowed",
+      "note": "a veto line anywhere cancels a requirement elsewhere"
+    },
+    {
+      "id": "synthetic-10",
+      "source": "synthetic",
+      "criteriaText": "Inclusion Criteria:\n\n* Ages 18 to 65\n\nExclusion Criteria:\n\n* Pregnancy",
+      "expect": "no-flag",
+      "expectReason": "no-mention",
+      "note": "no English at all"
+    },
+    {
+      "id": "synthetic-11",
+      "source": "synthetic",
+      "criteriaText": "Inclusion Criteria:\n\n* Treated at New England Baptist Hospital",
+      "expect": "no-flag",
+      "expectReason": "no-mention",
+      "note": "'England' must not match /english/"
+    },
+    {
+      "id": "synthetic-12",
+      "source": "synthetic",
+      "criteriaText": "Inclusion Criteria:\n\n   *    MUST   SPEAK   ENGLISH",
+      "expect": "flag",
+      "expectReason": null,
+      "note": "case/whitespace/bullet normalization"
+    },
+    {
+      "id": "synthetic-13",
+      "source": "synthetic",
+      "criteriaText": "Inclusion Criteria:\n\n* English speaking\n\nInclusion Criteria:\n\n* Age 18+",
+      "expect": "no-flag",
+      "expectReason": "no-sections",
+      "note": "duplicate heading"
+    }
+  ]
+}
