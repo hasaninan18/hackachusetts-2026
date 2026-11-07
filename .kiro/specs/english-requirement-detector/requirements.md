@@ -74,11 +74,13 @@ includes English speakers both read as a requirement, and never the reverse.
    negation, THE SYSTEM SHALL treat it as unclear.
 7. WHEN any English line is unclear (and no veto applies) THE SYSTEM SHALL return
    `mentioned / unclear` for the whole study.
-8. WHEN an English line names no language ability or use (speak, read, write, understand,
-   comprehend, fluent, proficient, literate, converse, communicate, consent, able/ability,
-   "language") THE SYSTEM SHALL treat it as unclear rather than as a requirement. *(Added in
-   design: fixture `real-line-30`, "child is exposed to English at least 50% of the time",
-   is an inclusion line with no negation that is not an ability requirement.)*
+8. WHEN an English line states no patient language ability (speak, read, write, understand,
+   comprehend, fluent, proficient, literate, converse, communicate, able/ability, or
+   "language other than English") THE SYSTEM SHALL treat it as unclear rather than as a
+   requirement. "Written", "consent" and a bare "language" are not ability cues, because
+   they also describe documents ("materials are written in English"). *(Added in design:
+   fixture `real-line-30`, "child is exposed to English at least 50% of the time", is an
+   inclusion line with no negation that is not an ability requirement.)*
 9. WHEN the text mentions English but no English line falls inside a usable section (e.g.
    only in a preamble before the first heading) THE SYSTEM SHALL return `mentioned / unclear`.
 

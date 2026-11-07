@@ -72,6 +72,24 @@ const SUBJECT_RE = new RegExp(
     ")\\b",
 );
 
+// --- Language ability (R2.8, design addition) ---------------------------------------------
+// A requirement line must say the PATIENT speaks / reads / writes / understands English (or,
+// in exclusion, has a language other than English). Lines about exposure, households or
+// materials ("child is exposed to English", "materials are written in English") state no
+// ability and must not flag. Kept deliberately narrow: "written", "consent" and a bare
+// "language" are NOT cues, because they also describe documents rather than people.
+const ABILITY_RE = new RegExp(
+  [
+    "\\b(?:speak|speaks|speaking|speaker|speakers|spoke|spoken)\\b",
+    "\\b(?:read|reads|reading|write|writes|writing)\\b",
+    "\\b(?:understand|understands|understanding|understood|comprehend|comprehends|comprehension)\\b",
+    "\\b(?:fluent|fluency|fluently|proficient|proficiency|literate|literacy|illiterate)\\b",
+    "\\b(?:converse|conversing|conversant|communicate|communicating|communication)\\b",
+    "\\b(?:able|ability)\\b",
+    "\\blanguage other than english\\b",
+  ].join("|"),
+);
+
 // --- Polarity (R2.4–R2.6) -----------------------------------------------------------------
 const NEGATION_RE = new RegExp(
   [
@@ -88,6 +106,7 @@ function classifyLine(section: Section, normalized: string): LineClass {
   if (INTERPRETER_RE.test(normalized)) return "veto";
   if (PERMISSIVE_RE.test(normalized)) return "veto";
   if (SUBJECT_RE.test(normalized)) return "subject";
+  if (!ABILITY_RE.test(normalized)) return "unclear"; // English named, but no ability stated
   const negated = NEGATION_RE.test(normalized);
   if (section === "inclusion" ? !negated : negated) return "requirement";
   return "unclear"; // polarity contradicts the section: never guess

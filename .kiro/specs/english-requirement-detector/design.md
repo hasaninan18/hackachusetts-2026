@@ -49,7 +49,7 @@ Each English line's `normalized` form (bullet stripped, whitespace collapsed, lo
 | 2 | `interpret*` or `translat*` | veto |
 | 3 | welcome / allowed / permitted / eligible / "will not be excluded" / "may join" / "may participate" / "may be included" / "not required" | veto |
 | 4 | names a non-patient subject (parent, caregiver, guardian, clinician, staff, provider, partner, proxy, doula, family, father, mother, teacher, coach, spouse, physician, nurse, …) | subject |
-| 5 | no language-ability cue (speak, read, write, understand, comprehend, fluent, proficien*, literate, convers*, communicat*, consent, able/ability, language) | unclear |
+| 5 | no language-ability cue (speak/speaking/speaker, read, write, understand, comprehend, fluent, proficient/proficiency, literate/literacy, converse/conversing, communicate, able/ability, "language other than english"); "written", "consent" and bare "language" are deliberately not cues | unclear |
 | 6 | polarity: inclusion ∧ ¬negation, or exclusion ∧ negation | requirement |
 | 7 | otherwise (inclusion ∧ negation, or exclusion ∧ ¬negation) | unclear |
 
@@ -69,8 +69,13 @@ requirement. Fixture `real-line-30` (`no-flag`) is exactly that: "Lives in an en
 where child is exposed to English at least 50% of the time". It describes exposure, not the
 patient's ability, and must not flag. Step 5 sends any English line that states no language
 ability to `unclear`. All 16 `flag` fixtures carry an ability cue, so the addition costs no
-asserted recall. The first implementation omitted step 5 and failed this fixture; see
-tasks.md task 4.
+asserted recall. The first implementation omitted step 5 and failed this fixture (plus
+related behavior tests); see tasks.md task 4.
+
+The cue list is narrow on purpose. "Written" ("materials are written in English"),
+"consent" ("consent forms are available in English") and a bare "language" ("English-language
+materials") describe documents, not the patient, so they do not count. Real consent
+requirements still flag through "able"/"ability"/"understand" (fixture `real-line-05`).
 
 ## Fixture walk-through (by hand, then confirmed by the test run)
 
