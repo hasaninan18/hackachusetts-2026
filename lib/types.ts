@@ -78,6 +78,13 @@ export interface Simplified {
 }
 
 export interface TrialsResponse {
+  /** Nearest-first. May be fewer than `total` when the list is trimmed to the closest ones. */
   trials: TrialSummary[];
+  /** How many in-radius trials the search found (can be more than `trials.length`). */
   total: number;
+  /**
+   * Set when the live search stopped at its upstream page cap with more studies left, so
+   * `total` is a lower bound. Absent otherwise.
+   */
+  truncated?: true;
 }

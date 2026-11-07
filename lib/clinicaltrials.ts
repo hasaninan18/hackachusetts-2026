@@ -15,13 +15,41 @@ import type {
 import { correctCoordinates } from "./facilities";
 import { haversineMi } from "./geo";
 import { ACTIVE_REGION, locationInRegion, type Region } from "./region";
-import type { Contact, Eligibility, Sex, Site, TrialDetail, TrialSummary } from "./types";
+import type {
+  Contact,
+  Eligibility,
+  Sex,
+  Site,
+  TrialDetail,
+  TrialSummary,
+  TrialsResponse,
+} from "./types";
 
 /** ClinicalTrials.gov API v2 studies endpoint. */
 const CTG_BASE = "https://clinicaltrials.gov/api/v2/studies";
 
 /** Minimum (and default) search radius in miles — see {@link normalizeRadius}. */
 const MIN_RADIUS_MI = 5;
+
+/**
+ * Studies per upstream page on the live search. 1000 is the API maximum: pages are fetched
+ * one after another (each needs the previous `nextPageToken`), so fewer, larger pages finish
+ * sooner. Measured Nov 2026, location-only 25 mi around Boston (2,948 studies): 3 pages of
+ * 1000 took ~3.4 s, 15 pages of 200 took ~4.5 s, for the same bytes.
+ */
+export const LIVE_PAGE_SIZE = 1000;
+
+/**
+ * Most upstream pages one live search may fetch (so at most LIVE_PAGE_SIZE × this many raw
+ * studies). The cap applies BEFORE the Massachusetts-site and radius filters, so it is set
+ * from raw counts, not from the 200 trials returned: the largest MA search today
+ * (location-only, 25 mi around Boston) is 2,948 raw studies, so 4 pages leaves headroom while
+ * bounding one search to 4 upstream calls. Hitting it marks the response `truncated`.
+ */
+export const LIVE_MAX_PAGES = 4;
+
+/** Most trials one search returns, nearest first (same limit as the database path). */
+export const RESULT_LIMIT = 200;
 
 /**
  * The exact `fields` list requested from ClinicalTrials.gov (Requirement 1.1). No
@@ -74,25 +102,30 @@ export function normalizeRadius(raw: unknown): number {
  * Build the ClinicalTrials.gov v2 search URL (Requirement 1.1) with the exact params and
  * {@link CTG_FIELDS}. `radius` is normalized via {@link normalizeRadius}. An empty/missing
  * `cond` is a location-only search (Requirement 1.8), sent as an empty `query.cond`.
+ * Requests {@link LIVE_PAGE_SIZE} studies per page; pass the previous page's
+ * `nextPageToken` as `pageToken` to get the next page.
  */
 export function buildSearchUrl({
   cond,
   lat,
   lon,
   radius,
+  pageToken,
 }: {
   cond?: string;
   lat: number;
   lon: number;
   radius?: unknown;
+  pageToken?: string;
 }): string {
   const r = normalizeRadius(radius);
   const params = new URLSearchParams();
   params.set("query.cond", cond ?? "");
   params.set("filter.overallStatus", RECRUITING);
   params.set("filter.geo", `distance(${lat},${lon},${r}mi)`);
-  params.set("pageSize", "50");
+  params.set("pageSize", String(LIVE_PAGE_SIZE));
   params.set("fields", CTG_FIELDS.join(","));
+  if (pageToken) params.set("pageToken", pageToken);
   return `${CTG_BASE}?${params.toString()}`;
 }
 
@@ -410,4 +443,40 @@ export function rankBySiteDistance(trials: TrialSummary[]): TrialSummary[] {
     .map((trial, index) => ({ trial, index }))
     .sort((a, b) => a.trial.distanceMi - b.trial.distanceMi || a.index - b.index)
     .map((entry) => entry.trial);
+}
+
+/**
+ * Turn the raw studies from every fetched search page into the `/api/trials` response:
+ * drop repeated NCT IDs (pages can shift while being read, and the list is keyed by NCT ID),
+ * slim each study to its nearest qualifying site ({@link slimStudy}), keep the in-radius ones
+ * ({@link withinRadius}), rank nearest-first, and return the closest `limit`. `total` counts
+ * every in-radius trial found, so it can be larger than `trials.length`. `truncated` marks a
+ * search that stopped at the page cap with studies left, so `total` is a lower bound. Total.
+ */
+export function summarizeSearch(
+  studies: CtgStudy[],
+  origin: { lat: number; lon: number },
+  radiusMi: number,
+  { limit = RESULT_LIMIT, truncated = false }: { limit?: number; truncated?: boolean } = {},
+): TrialsResponse {
+  const seen = new Set<string>();
+  const unique = studies.filter((study) => {
+    const id = study?.protocolSection?.identificationModule?.nctId;
+    if (typeof id !== "string" || id === "") return true;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+  const ranked = rankBySiteDistance(
+    withinRadius(
+      unique.map((study) => slimStudy(study, origin)).filter((s) => s !== null),
+      radiusMi,
+    ),
+  );
+  const out: TrialsResponse = {
+    trials: ranked.slice(0, Math.max(0, Math.trunc(limit))),
+    total: ranked.length,
+  };
+  if (truncated) out.truncated = true;
+  return out;
 }

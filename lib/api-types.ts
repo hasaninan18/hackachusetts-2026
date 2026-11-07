@@ -93,4 +93,6 @@ export interface CtgStudy {
 export interface CtgStudiesResponse {
   studies?: CtgStudy[];
   totalCount?: number;
+  /** Present when more pages follow; pass it back as `pageToken` to get the next page. */
+  nextPageToken?: string;
 }
