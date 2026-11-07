@@ -100,6 +100,14 @@ describe("searchTrials", () => {
     ]);
   });
 
+  it("keeps only sites in the given states, so an MA build never shows a Rhode Island site", async () => {
+    const ma = await searchTrials(db, { ...DORCHESTER, radiusMi: 60, cond: "", states: ["MA"] });
+    expect(ma.map((r) => r.nctId)).toEqual(["NCT00000001"]);
+    // Houston is nearer for NCT00000001, but only its Boston site is in MA.
+    const fromHouston = await searchTrials(db, { ...HOUSTON, radiusMi: 2000, cond: "", states: ["MA"] });
+    expect(fromHouston.map((r) => r.nearestSite.city)).toEqual(["Boston"]);
+  });
+
   it("respects the radius", async () => {
     expect(await searchTrials(db, { ...DORCHESTER, radiusMi: 10, cond: "" })).toHaveLength(1);
   });

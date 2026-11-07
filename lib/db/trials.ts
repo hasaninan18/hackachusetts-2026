@@ -130,6 +130,8 @@ export interface SearchQuery {
   radiusMi: number;
   /** Free-text condition in English (lib/condition-terms.ts translates first); "" = any. */
   cond: string;
+  /** USPS codes of the states to search (the build's region); omitted = every state. */
+  states?: readonly string[];
   limit?: number;
 }
 
@@ -141,6 +143,7 @@ with nearest as (
          st_distance(s.location, st_makepoint($2, $1)::geography) as meters
     from sites s
    where st_dwithin(s.location, st_makepoint($2, $1)::geography, $3)
+     and ($6::text[] is null or s.state = any($6::text[]))
    order by s.nct_id, meters
 )
 select t.nct_id, t.title, t.conditions, t.phase, n.facility, n.city, n.zip,
@@ -173,6 +176,7 @@ export async function searchTrials(db: Queryable, q: SearchQuery): Promise<Trial
     q.radiusMi * METERS_PER_MILE,
     q.cond.trim(),
     q.limit ?? 50,
+    q.states ? [...q.states] : null,
   ]);
   return rows.map((r) => {
     const nearestSite: Site = {

@@ -186,6 +186,18 @@ To try the whole-US site filter in the app, build with `NEXT_PUBLIC_TRIALPATH_RE
 (or `new-england`). Unset, it stays `ma`. UI copy still says "Massachusetts" and "MBTA"
 until region-aware copy lands.
 
+To have the app search the local database instead of ClinicalTrials.gov (no 50-study cap):
+
+```
+# PowerShell
+$env:NEXT_PUBLIC_TRIALPATH_REGION="us"; $env:TRIALPATH_PGLITE_DIR="data/pglite"; npx next dev -p 3000
+```
+
+- `/api/trials` uses the database only when `TRIALPATH_PGLITE_DIR` is set. It falls back to the
+  live ClinicalTrials.gov path if the database fails, and still filters sites to the build's region.
+- PGlite allows one process at a time: stop the dev server before running `npm run db:load`.
+- Houston, breast cancer, 10 mi: 175 results from the database vs 44 from the live path.
+
 ## Implementation status
 
 Phase A, branch `neil/national-expansion`:
@@ -198,7 +210,9 @@ Phase A, branch `neil/national-expansion`:
 | US snapshot job + data-quality report (`scripts/snapshot-us.ts`, `lib/ingest/`) | Done |
 | Postgres + PostGIS schema (`db/schema.sql`) + loader + search (`lib/db/trials.ts`) | Done, tested on PGlite |
 | Hosted database (Neon or Supabase) + `pg` client + nightly cron route | Not started; needs a team account |
-| Switch `/api/trials` to the database when `DATABASE_URL` is set | Not started |
+| `/api/trials` searches the database when one is configured (local PGlite via `TRIALPATH_PGLITE_DIR`), with live fallback | Done (checked in the browser) |
+| Hosted Postgres client (`DATABASE_URL`) for the same path | Not started; waits on the hosted database choice |
+| `/api/trials/[nct]` detail from the database (consistent "city" pin labels; no live call) | Not started |
 | MeSH entry terms for condition synonyms | Not started |
 | Facility matching against CMS / NPPES (fix city-center pins) | Not started; **blocks national transit** |
 | `TransitProvider` + GTFS stops import | Not started |
