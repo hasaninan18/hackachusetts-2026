@@ -33,32 +33,65 @@ export function setCached<T>(key: string, value: T, now: number): void {
   store.set(key, { value, storedAt: now });
 }
 
+// In-flight fetches for callers that opt in with `shareInFlight`, keyed like the store.
+// Opt-in only: two callers that share a key but not a deadline or error type (the detail
+// route waits 10 s, simplify waits 1.5 s, both keyed by NCT ID) must not join each other's
+// fetch, or one would inherit the other's timeout and error class. Cached RESULTS are still
+// shared by everyone.
+const inflight = new Map<string, Promise<unknown>>();
+
+/**
+ * Call `fetcher`, cache the result and return it. If `fetcher` throws (synchronously or
+ * not), fall back to the cached entry ONLY when it is still fresh (< CACHE_TTL_MS old
+ * relative to `now`); an expired entry is never served, so the error propagates rather than
+ * returning data older than the 10-minute policy.
+ */
+async function fetchAndCache<T>(key: string, fetcher: () => Promise<T>, now: number): Promise<T> {
+  try {
+    const value = await fetcher();
+    setCached(key, value, now);
+    return value;
+  } catch (err) {
+    const fallback = getCached<T>(key, now);
+    if (fallback !== undefined) return fallback;
+    store.delete(key);
+    throw err;
+  }
+}
+
 /**
  * Serve a fresh (< 10 min) entry for `key` without calling `fetcher`.
  * On a miss or stale entry, call `fetcher`, cache the result and return it.
  * If `fetcher` throws, fall back to the cached entry ONLY when it is still fresh
  * (< CACHE_TTL_MS old relative to `now`); an expired entry is never served, so the
  * error propagates rather than returning data older than the 10-minute policy.
+ *
+ * With `shareInFlight`, concurrent misses for the same `key` (that also pass
+ * `shareInFlight`) wait on the first caller's fetch instead of starting their own, and get
+ * the same value or the same error. Only use it where every such caller has the same
+ * deadline and error handling (the live search, keyed by its upstream URL).
  */
 export async function cachedFetchJson<T>(
   key: string,
   fetcher: () => Promise<T>,
   now: number = Date.now(),
+  { shareInFlight = false }: { shareInFlight?: boolean } = {},
 ): Promise<T> {
   const fresh = getCached<T>(key, now);
   if (fresh !== undefined) return fresh;
+  if (!shareInFlight) return fetchAndCache(key, fetcher, now);
 
-  try {
-    const value = await fetcher();
-    setCached(key, value, now);
-    return value;
-  } catch (err) {
-    // Freshness is enforced even on failure: only serve a fallback that is still
-    // within the 10-minute window. An expired entry is dropped and the error wins,
-    // so callers never receive data older than CACHE_TTL_MS.
-    const fallback = getCached<T>(key, now);
-    if (fallback !== undefined) return fallback;
-    store.delete(key);
-    throw err;
-  }
+  const pending = inflight.get(key) as Promise<T> | undefined;
+  if (pending !== undefined) return pending;
+
+  // Register BEFORE the fetcher runs: `Promise.resolve().then` defers it, so even a fetcher
+  // that throws synchronously settles `run` after it is in the map, and the cleanup below
+  // removes it. Only remove the entry if it is still this run (never a newer one).
+  const run = Promise.resolve().then(() => fetchAndCache(key, fetcher, now));
+  inflight.set(key, run);
+  const cleanup = () => {
+    if (inflight.get(key) === run) inflight.delete(key);
+  };
+  run.then(cleanup, cleanup);
+  return run;
 }

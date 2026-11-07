@@ -15,13 +15,53 @@ import type {
 import { correctCoordinates } from "./facilities";
 import { haversineMi } from "./geo";
 import { ACTIVE_REGION, locationInRegion, type Region } from "./region";
-import type { Contact, Eligibility, Sex, Site, TrialDetail, TrialSummary } from "./types";
+import type {
+  Contact,
+  Eligibility,
+  Sex,
+  Site,
+  TrialDetail,
+  TrialSummary,
+  TrialsResponse,
+} from "./types";
 
 /** ClinicalTrials.gov API v2 studies endpoint. */
 const CTG_BASE = "https://clinicaltrials.gov/api/v2/studies";
 
 /** Minimum (and default) search radius in miles — see {@link normalizeRadius}. */
 const MIN_RADIUS_MI = 5;
+
+/**
+ * Largest search radius in miles the server accepts — see {@link normalizeRadius}. The UI
+ * only offers 5/10/25, so this exists to stop hand-made URLs (radius=200) from asking for
+ * the whole state, which would hit {@link LIVE_MAX_PAGES} and return an arbitrary (not
+ * nearest) subset. 50 rather than 25 keeps the route's existing 35 mi radius test valid and
+ * still fits the page cap: location-only 50 mi around Boston is 3,344 raw studies (Nov 2026),
+ * under the 4,000 raw studies that LIVE_PAGE_SIZE × LIVE_MAX_PAGES allows.
+ */
+export const MAX_RADIUS_MI = 50;
+
+/**
+ * Studies per upstream page on the live search (API maximum 1000). Each page is summarized
+ * and dropped as it arrives, so the page size sets peak memory, while the page count sets
+ * latency (pages are sequential: each needs the previous `nextPageToken`). Measured Nov 2026
+ * on `next start`, location-only 25 mi around Boston (2,948 raw studies, search fields only):
+ * 1000/page peaked ~+150 MB RSS in ~3.0 s; 500/page peaked ~+80–125 MB in ~2.8 s.
+ */
+export const LIVE_PAGE_SIZE = 500;
+
+/**
+ * Most upstream pages one live search may fetch, so at most 8 × 500 = 4,000 raw studies and 8
+ * upstream calls. The cap applies BEFORE the Massachusetts-site and radius filters, so it is
+ * set from raw counts, not from the 200 trials returned: the largest MA search today
+ * (location-only, 25 mi around Boston) is 2,948 raw studies (6 pages), and the widest radius
+ * the server accepts ({@link MAX_RADIUS_MI}) is 3,344. Hitting it marks the response
+ * `truncated`.
+ */
+export const LIVE_MAX_PAGES = 8;
+
+/** Most trials one search returns, nearest first (same limit as the database path). */
+export const RESULT_LIMIT = 200;
 
 /**
  * The exact `fields` list requested from ClinicalTrials.gov (Requirement 1.1). No
@@ -48,6 +88,26 @@ const CTG_FIELDS = [
   "CentralContactEMail",
 ] as const;
 
+/**
+ * The smaller `fields` list for the live SEARCH: only what {@link slimStudy} reads (id, title,
+ * conditions, phase, and each location's facility/city/state/country/status/geoPoint). The
+ * search never needs eligibility text, summaries or contacts — the detail route fetches
+ * those with {@link CTG_FIELDS} — and dropping them cuts a large search's raw JSON roughly in
+ * half (location-only 25 mi around Boston: 44 MB → 25 MB), which bounds memory per page.
+ */
+const CTG_SEARCH_FIELDS = [
+  "NCTId",
+  "BriefTitle",
+  "Condition",
+  "Phase",
+  "LocationFacility",
+  "LocationCity",
+  "LocationState",
+  "LocationCountry",
+  "LocationGeoPoint",
+  "LocationStatus",
+] as const;
+
 /** Per-site status that qualifies a location (BACKEND_NOTES.md §2). */
 const RECRUITING = "RECRUITING";
 
@@ -59,40 +119,45 @@ const PRINCIPAL_INVESTIGATOR = "PRINCIPAL_INVESTIGATOR";
 // ---------------------------------------------------------------------------
 
 /**
- * Normalize a raw `radius` value to miles (Requirement 1.2). Returns `Math.max(5, n)`
- * for a finite `n ≥ 5`; anything missing, non-numeric, or below 5 defaults to 5 — the
- * Boston centroid sits ~4 mi from Dorchester, so smaller radii drop every Boston trial
- * (docs/DEMO_DATA.md). Total: never throws.
+ * Normalize a raw `radius` value to miles (Requirement 1.2), clamped to
+ * [{@link MIN_RADIUS_MI}, {@link MAX_RADIUS_MI}]. Anything missing, non-numeric, or below 5
+ * defaults to 5 — the Boston centroid sits ~4 mi from Dorchester, so smaller radii drop every
+ * Boston trial (docs/DEMO_DATA.md). Anything above 50 becomes 50. Total: never throws.
  */
 export function normalizeRadius(raw: unknown): number {
   const n = typeof raw === "number" ? raw : Number(raw);
-  if (Number.isFinite(n) && n >= MIN_RADIUS_MI) return Math.max(MIN_RADIUS_MI, n);
+  if (Number.isFinite(n) && n >= MIN_RADIUS_MI) return Math.min(MAX_RADIUS_MI, n);
   return MIN_RADIUS_MI;
 }
 
 /**
  * Build the ClinicalTrials.gov v2 search URL (Requirement 1.1) with the exact params and
- * {@link CTG_FIELDS}. `radius` is normalized via {@link normalizeRadius}. An empty/missing
+ * {@link CTG_SEARCH_FIELDS}. `radius` is normalized via {@link normalizeRadius}. An empty/missing
  * `cond` is a location-only search (Requirement 1.8), sent as an empty `query.cond`.
+ * Requests {@link LIVE_PAGE_SIZE} studies per page; pass the previous page's
+ * `nextPageToken` as `pageToken` to get the next page.
  */
 export function buildSearchUrl({
   cond,
   lat,
   lon,
   radius,
+  pageToken,
 }: {
   cond?: string;
   lat: number;
   lon: number;
   radius?: unknown;
+  pageToken?: string;
 }): string {
   const r = normalizeRadius(radius);
   const params = new URLSearchParams();
   params.set("query.cond", cond ?? "");
   params.set("filter.overallStatus", RECRUITING);
   params.set("filter.geo", `distance(${lat},${lon},${r}mi)`);
-  params.set("pageSize", "50");
-  params.set("fields", CTG_FIELDS.join(","));
+  params.set("pageSize", String(LIVE_PAGE_SIZE));
+  params.set("fields", CTG_SEARCH_FIELDS.join(","));
+  if (pageToken) params.set("pageToken", pageToken);
   return `${CTG_BASE}?${params.toString()}`;
 }
 
@@ -410,4 +475,57 @@ export function rankBySiteDistance(trials: TrialSummary[]): TrialSummary[] {
     .map((trial, index) => ({ trial, index }))
     .sort((a, b) => a.trial.distanceMi - b.trial.distanceMi || a.index - b.index)
     .map((entry) => entry.trial);
+}
+
+/**
+ * Builds the `/api/trials` response one upstream page at a time, so a large search never
+ * holds more than one page of raw studies: each `add` keeps only the slim, in-radius
+ * summaries plus the NCT IDs seen so far. Per study, in arrival order: drop a repeated NCT ID
+ * (the first copy wins, even if it was out of radius; pages can shift while being read, and
+ * the list is keyed by NCT ID), slim it to its nearest qualifying site ({@link slimStudy}),
+ * and keep it if {@link withinRadius}. `finish` ranks nearest-first and returns the closest
+ * `limit`; `total` counts every in-radius trial found, so it can exceed `trials.length`.
+ * `truncated` marks a search that stopped at the page cap with studies left, so `total` is a
+ * lower bound. No I/O, clock or randomness.
+ */
+export function createSearchSummary(origin: { lat: number; lon: number }, radiusMi: number) {
+  const seen = new Set<string>();
+  const kept: TrialSummary[] = [];
+  return {
+    add(studies: readonly CtgStudy[]): void {
+      for (const study of studies) {
+        const id = study?.protocolSection?.identificationModule?.nctId;
+        if (typeof id === "string" && id !== "") {
+          if (seen.has(id)) continue;
+          seen.add(id);
+        }
+        const slim = slimStudy(study, origin);
+        if (slim !== null) kept.push(...withinRadius([slim], radiusMi));
+      }
+    },
+    finish({
+      limit = RESULT_LIMIT,
+      truncated = false,
+    }: { limit?: number; truncated?: boolean } = {}): TrialsResponse {
+      const ranked = rankBySiteDistance(kept);
+      const out: TrialsResponse = {
+        trials: ranked.slice(0, Math.max(0, Math.trunc(limit))),
+        total: ranked.length,
+      };
+      if (truncated) out.truncated = true;
+      return out;
+    },
+  };
+}
+
+/** {@link createSearchSummary} over studies already in hand, in one call. Total. */
+export function summarizeSearch(
+  studies: CtgStudy[],
+  origin: { lat: number; lon: number },
+  radiusMi: number,
+  options: { limit?: number; truncated?: boolean } = {},
+): TrialsResponse {
+  const summary = createSearchSummary(origin, radiusMi);
+  summary.add(studies);
+  return summary.finish(options);
 }

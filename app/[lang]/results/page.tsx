@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
+import { ResultsCount } from "@/components/ResultsCount";
 import { ResultsList } from "@/components/ResultsList";
 import { getTrials, wantsMocks } from "@/lib/data";
 import { getDictionary, isLang, translator } from "@/lib/i18n";
@@ -119,17 +120,19 @@ async function Results({
     );
   }
 
-  const n = data.trials.length;
   const change = new URLSearchParams({ cond, radius: String(radius) });
   if (mock) change.set("mock", "1");
   return (
     <div>
       <p className="flex flex-wrap items-center gap-x-4">
-        <span role="status" className="font-semibold">
-          {n === 1
-            ? t("results.countOne", { cond, mi: radius })
-            : t("results.count", { n, cond, mi: radius })}
-        </span>
+        <ResultsCount
+          shown={data.trials.length}
+          total={data.total}
+          truncated={data.truncated === true}
+          cond={cond}
+          mi={radius}
+          t={t}
+        />
         <Link
           href={`/${lang}?${change}`}
           className="inline-flex min-h-11 items-center font-semibold text-primary underline"
