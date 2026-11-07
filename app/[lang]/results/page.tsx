@@ -119,7 +119,9 @@ async function Results({
     );
   }
 
-  const n = data.trials.length;
+  // `total` counts every in-radius study found; the list holds the nearest of them.
+  const shown = data.trials.length;
+  const n = Math.max(data.total, shown);
   const change = new URLSearchParams({ cond, radius: String(radius) });
   if (mock) change.set("mock", "1");
   return (
@@ -130,6 +132,7 @@ async function Results({
             ? t("results.countOne", { cond, mi: radius })
             : t("results.count", { n, cond, mi: radius })}
         </span>
+        {shown < n && <span>{t("results.showingClosest", { n: shown })}</span>}
         <Link
           href={`/${lang}?${change}`}
           className="inline-flex min-h-11 items-center font-semibold text-primary underline"

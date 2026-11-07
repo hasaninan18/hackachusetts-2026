@@ -28,6 +28,7 @@ export const zh = {
   "results.heading": "您附近的研究",
   "results.count": "{mi} 英里内有 {n} 项关于“{cond}”的研究",
   "results.countOne": "{mi} 英里内有 1 项关于“{cond}”的研究",
+  "results.showingClosest": "显示距离最近的 {n} 项。",
   "results.changeSearch": "修改搜索",
   "results.englishNote": "研究名称以英语显示。打开研究即可阅读您所选语言的介绍。",
   "results.away": "距离约 {mi} 英里",
