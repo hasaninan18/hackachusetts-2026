@@ -165,8 +165,10 @@ From `npm run snapshot:us` and `npm run db:load -- --compare`:
   English or another named language (heuristic in `lib/ingest/quality.ts`; MA was 16%).
 - **MA is 2,780 trials at site level.** That's trials with a *site* in MA that is itself
   recruiting; the 3,146 in the README is the study-level count.
-- **The live search is silently capped at 50 studies** (`pageSize=50` in `buildSearchUrl`).
-  Houston, breast cancer, 10 mi: live shows 44, the database finds 175.
+- **The live search was silently capped at 50 studies** (`pageSize=50` in `buildSearchUrl`).
+  Houston, breast cancer, 10 mi: live showed 44, the database finds 175. Fixed on
+  `fix/live-search-cap`: the live path now follows `nextPageToken` (1000 per page, at most 4
+  pages, one 10 s deadline) and returns the nearest 200, like the database path.
 - **Database search vs live:** the database found every live result except 1 per dense probe.
   Both misses were synonym gaps ("breast cancer" vs "Breast Carcinoma"; "Type1diabetes" written
   as one word). Fix: import MeSH entry terms (NLM), not a hand-made synonym list.
@@ -186,7 +188,7 @@ To try the whole-US site filter in the app, build with `NEXT_PUBLIC_TRIALPATH_RE
 (or `new-england`). Unset, it stays `ma`. UI copy still says "Massachusetts" and "MBTA"
 until region-aware copy lands.
 
-To have the app search the local database instead of ClinicalTrials.gov (no 50-study cap):
+To have the app search the local database instead of ClinicalTrials.gov:
 
 ```
 # PowerShell
