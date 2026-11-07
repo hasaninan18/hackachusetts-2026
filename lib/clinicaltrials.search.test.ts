@@ -6,8 +6,11 @@ import { describe, expect, it } from "vitest";
 import type { CtgStudy } from "./api-types";
 import {
   LIVE_PAGE_SIZE,
+  MAX_RADIUS_MI,
   RESULT_LIMIT,
   buildSearchUrl,
+  createSearchSummary,
+  normalizeRadius,
   summarizeSearch,
 } from "./clinicaltrials";
 
@@ -114,5 +117,65 @@ describe("summarizeSearch", () => {
         },
       ),
     );
+  });
+});
+
+describe("normalizeRadius — clamp", () => {
+  it("clamps to [5, MAX_RADIUS_MI], and MAX_RADIUS_MI covers the UI's 25 mi", () => {
+    expect(MAX_RADIUS_MI).toBeGreaterThanOrEqual(25);
+    expect(normalizeRadius("200")).toBe(MAX_RADIUS_MI);
+    expect(normalizeRadius(1e9)).toBe(MAX_RADIUS_MI);
+    expect(normalizeRadius("25")).toBe(25);
+    expect(normalizeRadius("2")).toBe(5);
+    expect(normalizeRadius("Infinity")).toBe(5);
+  });
+
+  it("property: result always lies in [5, MAX_RADIUS_MI] and the URL sends it", () => {
+    fc.assert(
+      fc.property(fc.oneof(fc.double(), fc.string(), fc.integer()), (raw) => {
+        const r = normalizeRadius(raw);
+        expect(r).toBeGreaterThanOrEqual(5);
+        expect(r).toBeLessThanOrEqual(MAX_RADIUS_MI);
+        const geo = new URL(buildSearchUrl({ lat: 42, lon: -71, radius: raw })).searchParams.get(
+          "filter.geo",
+        );
+        expect(geo).toBe(`distance(42,-71,${r}mi)`);
+      }),
+    );
+  });
+});
+
+describe("createSearchSummary — page by page", () => {
+  it("property: adding studies in any page split gives the same response as one call", () => {
+    fc.assert(
+      fc.property(
+        fc.array(
+          fc.record({
+            id: fc.integer({ min: 0, max: 30 }),
+            dLat: fc.double({ min: -0.3, max: 0.3, noNaN: true }),
+          }),
+          { maxLength: 60 },
+        ),
+        fc.array(fc.integer({ min: 0, max: 60 }), { maxLength: 5 }),
+        fc.integer({ min: 0, max: 40 }),
+        fc.boolean(),
+        (rows, cuts, limit, truncated) => {
+          const studies = rows.map((r) => study(`NCT${r.id}`, r.dLat));
+          const bounds = [0, ...cuts.map((c) => Math.min(c, studies.length)).sort((a, b) => a - b), studies.length];
+          const summary = createSearchSummary(ORIGIN, 10);
+          for (let i = 1; i < bounds.length; i++) summary.add(studies.slice(bounds[i - 1], bounds[i]));
+          expect(summary.finish({ limit, truncated })).toEqual(
+            summarizeSearch(studies, ORIGIN, 10, { limit, truncated }),
+          );
+        },
+      ),
+    );
+  });
+
+  it("keeps the first copy of a repeated NCT ID even when that copy is out of radius", () => {
+    const summary = createSearchSummary(ORIGIN, 5);
+    summary.add([study("NCT7", 0.5)]); // ~35 mi: out of radius
+    summary.add([study("NCT7", 0.01)]); // repeat on a later page: dropped
+    expect(summary.finish()).toEqual({ trials: [], total: 0 });
   });
 });

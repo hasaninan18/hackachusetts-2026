@@ -10,10 +10,10 @@
 //       or on any database error continue below
 //     → buildSearchUrl
 //     → cachedFetchJson (10-min cache, keyed by the first-page upstream URL)
-//       → fetch every page by following `nextPageToken` (at most LIVE_MAX_PAGES, one
-//         UPSTREAM_TIMEOUT_MS deadline for all of them)
-//       → summarizeSearch: slimStudy(origin) per study → drop nulls → withinRadius
-//         → rankBySiteDistance → nearest RESULT_LIMIT
+//       → runLiveSearch: fetch every page by following `nextPageToken` (at most
+//         LIVE_MAX_PAGES, one UPSTREAM_TIMEOUT_MS deadline for all of them), folding each
+//         page into createSearchSummary as it arrives (dedupe → slimStudy(origin) → drop
+//         nulls → withinRadius), then rankBySiteDistance → nearest RESULT_LIMIT
 //     → { trials, total[, truncated] } JSON.
 //
 // The withinRadius step enforces the advertised radius against the CORRECTED nearest-site
@@ -35,16 +35,15 @@ import { NextResponse } from "next/server";
 import type {
   ApiError,
   CtgStudiesResponse,
-  CtgStudy,
   TrialsResponse,
 } from "../../../lib/api-types";
 import { cachedFetchJson } from "../../../lib/cache";
 import {
   buildSearchUrl,
   LIVE_MAX_PAGES,
+  createSearchSummary,
   normalizeRadius,
   RESULT_LIMIT,
-  summarizeSearch,
 } from "../../../lib/clinicaltrials";
 import { toEnglishCondition } from "../../../lib/condition-terms";
 import { getDb } from "../../../lib/db/client";
@@ -83,7 +82,7 @@ type LiveSearch = { cond: string; lat: number; lon: number; radius: number };
 
 /**
  * Fetch one upstream page and parse its JSON body. Throws a plain `Error` on a non-OK
- * response; an abort or network failure propagates for {@link fetchAllStudies} to map.
+ * response; an abort or network failure propagates for {@link runLiveSearch} to map.
  */
 async function fetchPage(url: string, signal: AbortSignal): Promise<CtgStudiesResponse> {
   const res = await fetch(url, { signal, headers: { accept: "application/json" } });
@@ -94,32 +93,43 @@ async function fetchPage(url: string, signal: AbortSignal): Promise<CtgStudiesRe
 }
 
 /**
- * Fetch every page of a live search by following `nextPageToken`, up to
- * {@link LIVE_MAX_PAGES} pages. One deadline ({@link UPSTREAM_TIMEOUT_MS}) covers all pages,
- * so a slow multi-page search still ends with a 504 on time. Throws an
- * {@link UpstreamTimeoutError} on timeout/abort (→ 504) and a plain `Error` on a non-OK
- * response or any other network failure (→ 502). `truncated` is true when the cap stopped
- * the search with a next page still offered. This is the only place that touches the
- * network; it is passed to {@link cachedFetchJson} as the fetcher.
+ * Run a live search page by page, following `nextPageToken`, up to {@link LIVE_MAX_PAGES}
+ * pages, and return the finished response. Each page is folded into a
+ * {@link createSearchSummary} as soon as it arrives and then dropped, so memory peaks at about
+ * one page of raw JSON instead of every page at once.
+ *
+ * One deadline ({@link UPSTREAM_TIMEOUT_MS}) covers all pages, so a slow multi-page search
+ * still ends with a 504 on time. Throws an {@link UpstreamTimeoutError} on timeout/abort
+ * (→ 504) and a plain `Error` on a non-OK response or any other network failure (→ 502); a
+ * failing page fails the whole search. The search stops early when upstream offers no token
+ * or a token it already gave (an A→B→A loop is not "more results"); it is `truncated` only
+ * when the page cap stops it with a new token still offered. This is the only place that
+ * touches the network; it is passed to {@link cachedFetchJson} as the fetcher.
  */
-async function fetchAllStudies(
+async function runLiveSearch(
   search: LiveSearch,
-): Promise<{ studies: CtgStudy[]; truncated: boolean }> {
+  origin: { lat: number; lon: number },
+): Promise<TrialsResponse> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
-  const studies: CtgStudy[] = [];
+  const summary = createSearchSummary(origin, search.radius);
+  const seenTokens = new Set<string>();
   let pageToken: string | undefined;
   try {
     for (let page = 0; page < LIVE_MAX_PAGES; page++) {
       const body = await fetchPage(buildSearchUrl({ ...search, pageToken }), controller.signal);
-      if (Array.isArray(body.studies)) studies.push(...body.studies);
+      if (Array.isArray(body.studies)) summary.add(body.studies);
       const next = body.nextPageToken;
-      if (typeof next !== "string" || next === "" || next === pageToken) {
-        return { studies, truncated: false };
+      if (typeof next !== "string" || next === "" || seenTokens.has(next)) {
+        return summary.finish();
       }
+      seenTokens.add(next);
       pageToken = next;
     }
-    return { studies, truncated: true };
+    console.warn(
+      `[trials] live search stopped at ${LIVE_MAX_PAGES} upstream pages with more left; total is a lower bound`,
+    );
+    return summary.finish({ truncated: true });
   } catch (err) {
     if (controller.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) {
       throw new UpstreamTimeoutError("upstream request timed out");
@@ -176,15 +186,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     // cachedFetchJson serves a fresh (<10 min) entry without fetching, caches successful
     // results, and falls back to any cached entry if the fetch throws — only rethrowing
     // when nothing is cached (Requirement 6.2, 6.4).
-    payload = await cachedFetchJson(url, async () => {
-      const { studies, truncated } = await fetchAllStudies(search);
-      if (truncated) {
-        console.warn(
-          `[trials] live search stopped at ${LIVE_MAX_PAGES} upstream pages with more left; total is a lower bound`,
-        );
-      }
-      return summarizeSearch(studies, origin, radius, { truncated });
-    });
+    payload = await cachedFetchJson(url, () => runLiveSearch(search, origin));
   } catch (err) {
     if (err instanceof UpstreamTimeoutError) {
       return errorResponse("upstream request timed out", 504);
@@ -192,7 +194,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     return errorResponse("failed to reach ClinicalTrials.gov", 502);
   }
 
-  // `radius` is already normalized (>= MIN_RADIUS_MI) above, so the radius summarizeSearch
+  // `radius` is already normalized (5–MAX_RADIUS_MI) above, so the radius createSearchSummary
   // enforces matches the one sent upstream. `total` counts every in-radius trial found;
   // `trials` is the nearest RESULT_LIMIT of them.
   return NextResponse.json<TrialsResponse>(payload);
