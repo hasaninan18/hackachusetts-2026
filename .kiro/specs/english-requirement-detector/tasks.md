@@ -34,6 +34,9 @@ task here (see requirements.md, "Out of scope").
         `required`.
   - [x] 4.5 Fix: an English line must state a patient language ability before polarity is
         applied (requirements 2.8). All 136 pass.
+  - [x] 4.6 Hardening beyond the fixtures: hedged wording ("is preferred", "if possible",
+        "unless …", "will be accommodated") returned `required` or `unclear`; 5 new tests
+        failed first, then pass after adding hedge vetoes (requirements 3.3). 141 pass.
 
 - [x] 5. Repo checks: `npm ci`, `npx vitest run --no-file-parallelism`, `npm run typecheck`,
       `npm run lint`, `npm run build`, `node tests/copy-guard.mjs` (results in the PR).

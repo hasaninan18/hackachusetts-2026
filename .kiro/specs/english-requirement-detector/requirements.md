@@ -94,7 +94,9 @@ includes English speakers both read as a requirement, and never the reverse.
    `mentioned / other-language-allowed`.
 3. WHEN any English line says non-English speakers are welcome, allowed, eligible, "will not
    be excluded", "still eligible", "may join", "may participate", or that English "is not
-   required", THE SYSTEM SHALL return `mentioned / other-language-allowed`.
+   required", THE SYSTEM SHALL return `mentioned / other-language-allowed`. Hedged or
+   conditional wording (preferred, preferably, ideally, encouraged, "if possible", unless,
+   except, accommodated) is treated the same way: it does not state a firm requirement.
 4. Vetoes SHALL apply across the whole study and take precedence over requirement, subject
    and unclear lines.
 

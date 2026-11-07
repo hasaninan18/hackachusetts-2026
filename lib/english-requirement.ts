@@ -52,6 +52,10 @@ const INTERPRETER_RE = /\b(?:interpret|translat)\w*/;
 const PERMISSIVE_RE = new RegExp(
   [
     "\\b(?:welcomed?|welcomes|allowed|permitted|eligible|optional)\\b",
+    // hedged or conditional: English is preferred, or has an exception / accommodation
+    "\\b(?:preferred|preferably|preferable|ideally|encouraged|unless|except)\\b",
+    "\\bif possible\\b",
+    "\\baccommodat\\w*",
     "\\bnot (?:be )?excluded\\b",
     "\\bnot (?:be )?(?:required|necessary)\\b",
     "\\bnot a requirement\\b",

@@ -47,7 +47,7 @@ Each English line's `normalized` form (bullet stripped, whitespace collapsed, lo
 |---|---|---|
 | 1 | names another language, plural "languages", "any/preferred/sign language", bilingual | veto |
 | 2 | `interpret*` or `translat*` | veto |
-| 3 | welcome / allowed / permitted / eligible / "will not be excluded" / "may join" / "may participate" / "may be included" / "not required" | veto |
+| 3 | welcome / allowed / permitted / eligible / "will not be excluded" / "may join" / "may participate" / "may be included" / "not required"; hedges: preferred / preferably / ideally / encouraged / "if possible" / unless / except / accommodat* | veto |
 | 4 | names a non-patient subject (parent, caregiver, guardian, clinician, staff, provider, partner, proxy, doula, family, father, mother, teacher, coach, spouse, physician, nurse, …) | subject |
 | 5 | no language-ability cue (speak/speaking/speaker, read, write, understand, comprehend, fluent, proficient/proficiency, literate/literacy, converse/conversing, communicate, able/ability, "language other than english"); "written", "consent" and bare "language" are deliberately not cues | unclear |
 | 6 | polarity: inclusion ∧ ¬negation, or exclusion ∧ negation | requirement |

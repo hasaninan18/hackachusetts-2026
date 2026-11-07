@@ -213,6 +213,12 @@ describe("behavior: veto precedence (R3)", () => {
     "Non-English speakers may participate",
     "Speaking English is not required",
     "Non-English speaking patients will not be excluded",
+    // hedged or conditional wording: English is preferred or has an exception, not required
+    "Ability to read English is preferred",
+    "Preferably able to speak English",
+    "Able to speak English if possible",
+    "Unable to read English, unless a reader is available",
+    "Patients who cannot speak English will be accommodated",
   ])("veto: %s", (line) => {
     expect(detectEnglishRequirement(inc(line))).toEqual({ status: "mentioned", reason: "other-language-allowed" });
   });
