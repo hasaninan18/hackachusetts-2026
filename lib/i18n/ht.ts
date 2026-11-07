@@ -29,6 +29,8 @@ export const ht = {
   "results.count": "{n} etid sou “{cond}” nan yon distans {mi} mil",
   "results.countOne": "1 etid sou “{cond}” nan yon distans {mi} mil",
   "results.showingClosest": "N ap montre {n} ki pi pre yo.",
+  "results.countAtLeast": "Omwen {n} etid sou “{cond}” nan yon distans {mi} mil",
+  "results.showingNearby": "N ap montre {n} ki pre.",
   "results.changeSearch": "Chanje rechèch la",
   "results.englishNote": "Non etid yo ekri an anglè. Louvri yon etid pou li l nan lang ou.",
   "results.away": "Apeprè {mi} mil lwen",

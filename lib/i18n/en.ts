@@ -34,6 +34,8 @@ export const en = {
   "results.count": "{n} studies for \"{cond}\" within {mi} miles",
   "results.countOne": "1 study for \"{cond}\" within {mi} miles",
   "results.showingClosest": "Showing the {n} closest.",
+  "results.countAtLeast": "At least {n} studies for \"{cond}\" within {mi} miles",
+  "results.showingNearby": "Showing {n} nearby.",
   "results.changeSearch": "Change search",
   "results.englishNote": "Study names are shown in English. Open a study to read it in your language.",
   "results.away": "About {mi} miles away",

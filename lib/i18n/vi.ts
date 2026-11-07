@@ -29,6 +29,8 @@ export const vi = {
   "results.count": "{n} nghiên cứu về “{cond}” trong vòng {mi} dặm",
   "results.countOne": "1 nghiên cứu về “{cond}” trong vòng {mi} dặm",
   "results.showingClosest": "Đang hiển thị {n} nghiên cứu gần nhất.",
+  "results.countAtLeast": "Ít nhất {n} nghiên cứu về “{cond}” trong vòng {mi} dặm",
+  "results.showingNearby": "Đang hiển thị {n} nghiên cứu ở gần.",
   "results.changeSearch": "Đổi tìm kiếm",
   "results.englishNote": "Tên nghiên cứu được hiển thị bằng tiếng Anh. Mở một nghiên cứu để đọc bằng ngôn ngữ của bạn.",
   "results.away": "Cách khoảng {mi} dặm",

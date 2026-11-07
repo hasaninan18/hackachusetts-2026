@@ -29,6 +29,8 @@ export const pt = {
   "results.count": "{n} estudos sobre “{cond}” em um raio de {mi} milhas",
   "results.countOne": "1 estudo sobre “{cond}” em um raio de {mi} milhas",
   "results.showingClosest": "Mostrando os {n} mais próximos.",
+  "results.countAtLeast": "Pelo menos {n} estudos sobre “{cond}” em um raio de {mi} milhas",
+  "results.showingNearby": "Mostrando {n} próximos.",
   "results.changeSearch": "Alterar busca",
   "results.englishNote": "Os nomes dos estudos estão em inglês. Abra um estudo para ler no seu idioma.",
   "results.away": "A cerca de {mi} milhas",

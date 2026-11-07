@@ -40,7 +40,8 @@ export async function getTrials(q: TrialQuery, mock: boolean): Promise<TrialsRes
   if (!res.ok) throw new Error(`GET /api/trials ${res.status}`);
   const body = await res.json();
   const trials = (Array.isArray(body?.trials) ? body.trials : []).filter(isSummary);
-  return { trials, total: typeof body?.total === "number" ? body.total : trials.length };
+  const total = typeof body?.total === "number" ? body.total : trials.length;
+  return body?.truncated === true ? { trials, total, truncated: true } : { trials, total };
 }
 
 // Responses are checked before rendering: a missing array must not crash the page
