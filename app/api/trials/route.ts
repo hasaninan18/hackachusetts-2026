@@ -186,7 +186,11 @@ export async function GET(request: Request): Promise<NextResponse> {
     // cachedFetchJson serves a fresh (<10 min) entry without fetching, caches successful
     // results, and falls back to any cached entry if the fetch throws — only rethrowing
     // when nothing is cached (Requirement 6.2, 6.4).
-    payload = await cachedFetchJson(url, () => runLiveSearch(search, origin));
+    // shareInFlight: identical concurrent cold searches share one paging run. Every caller
+    // of this key is this route, with the same deadline and error mapping.
+    payload = await cachedFetchJson(url, () => runLiveSearch(search, origin), Date.now(), {
+      shareInFlight: true,
+    });
   } catch (err) {
     if (err instanceof UpstreamTimeoutError) {
       return errorResponse("upstream request timed out", 504);
