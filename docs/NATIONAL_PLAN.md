@@ -167,7 +167,7 @@ From `npm run snapshot:us` and `npm run db:load -- --compare`:
   recruiting; the 3,146 in the README is the study-level count.
 - **The live search was silently capped at 50 studies** (`pageSize=50` in `buildSearchUrl`).
   Houston, breast cancer, 10 mi: live showed 44, the database finds 175. Fixed on
-  `fix/live-search-cap`: the live path now follows `nextPageToken` (1000 per page, at most 4
+  `fix/live-search-cap`: the live path now follows `nextPageToken` (500 per page, at most 8
   pages, one 10 s deadline) and returns the nearest 200, like the database path.
 - **Database search vs live:** the database found every live result except 1 per dense probe.
   Both misses were synonym gaps ("breast cancer" vs "Breast Carcinoma"; "Type1diabetes" written
