@@ -14,6 +14,7 @@ import type {
 } from "./api-types";
 import { correctCoordinates } from "./facilities";
 import { haversineMi } from "./geo";
+import { ACTIVE_REGION, locationInRegion, type Region } from "./region";
 import type { Contact, Eligibility, Sex, Site, TrialDetail, TrialSummary } from "./types";
 
 /** ClinicalTrials.gov API v2 studies endpoint. */
@@ -36,6 +37,7 @@ const CTG_FIELDS = [
   "LocationFacility",
   "LocationCity",
   "LocationState",
+  "LocationCountry",
   "LocationGeoPoint",
   "LocationStatus",
   "LocationContactName",
@@ -48,8 +50,6 @@ const CTG_FIELDS = [
 
 /** Per-site status that qualifies a location (BACKEND_NOTES.md §2). */
 const RECRUITING = "RECRUITING";
-/** Per-site state that qualifies a location (BACKEND_NOTES.md §2). */
-const MASSACHUSETTS = "Massachusetts";
 
 /** Contact role dropped when it carries no phone or email (safety.md §5, BACKEND_NOTES §5). */
 const PRINCIPAL_INVESTIGATOR = "PRINCIPAL_INVESTIGATOR";
@@ -169,19 +169,23 @@ export function correctSite(rawLocation: CtgLocation): Site {
   return site;
 }
 
-/** True when a raw location is recruiting AND in Massachusetts (BACKEND_NOTES §2). */
-function isRecruitingMaLocation(loc: CtgLocation): boolean {
-  return loc.status === RECRUITING && loc.state === MASSACHUSETTS;
+/** True when a raw location is recruiting AND inside `region` (BACKEND_NOTES §2). */
+function isRecruitingLocationIn(region: Region, loc: CtgLocation): boolean {
+  return loc.status === RECRUITING && locationInRegion(region, loc);
 }
 
 /**
  * Correct every qualifying location into a {@link Site} (Requirement 1.3): keep only
- * locations whose own `status === "RECRUITING"` AND `state === "Massachusetts"`. Returns
- * corrected `Site[]` (possibly empty). Total.
+ * locations whose own `status === "RECRUITING"` AND whose state is in `region` (the build's
+ * {@link ACTIVE_REGION} by default; Massachusetts unless configured). Returns corrected
+ * `Site[]` (possibly empty). Total.
  */
-export function recruitingMaSites(rawLocations: CtgLocation[] | undefined): Site[] {
+export function recruitingSites(
+  rawLocations: CtgLocation[] | undefined,
+  region: Region = ACTIVE_REGION,
+): Site[] {
   if (!Array.isArray(rawLocations)) return [];
-  return rawLocations.filter(isRecruitingMaLocation).map(correctSite);
+  return rawLocations.filter((loc) => isRecruitingLocationIn(region, loc)).map(correctSite);
 }
 
 /**
@@ -245,16 +249,17 @@ function usableContacts(raw: CtgContact[]): CtgContact[] {
  * Signature: takes the study's raw central contacts AND the study's raw locations (not the
  * corrected `Site[]`), because the site/location fallback needs each location's raw
  * `.contacts` (LocationContactName/Phone/EMail). Locations are filtered internally to the
- * recruiting-MA set, mirroring {@link recruitingMaSites}.
+ * recruiting set inside `region`, mirroring {@link recruitingSites}.
  *
  * Rules: use the study's CENTRAL contacts when any has a phone or email; otherwise fall
- * back to the site/location contacts from the qualifying MA sites. In both cases prefer
+ * back to the site/location contacts from the qualifying in-region sites. In both cases prefer
  * entries that have a phone or email, drop PI-without-contact entries, and pass phone/email
  * strings through unchanged. Total: never throws.
  */
 export function buildContacts(
   centralContacts: CtgContact[] | undefined,
   rawLocations: CtgLocation[] | undefined,
+  region: Region = ACTIVE_REGION,
 ): Contact[] {
   const central = Array.isArray(centralContacts) ? centralContacts : [];
   // Use central contacts when at least one carries a phone or email.
@@ -262,10 +267,10 @@ export function buildContacts(
     return usableContacts(central).map(toContact);
   }
 
-  // Fall back to site/location contacts from the qualifying MA sites.
+  // Fall back to site/location contacts from the qualifying in-region sites.
   const locations = Array.isArray(rawLocations) ? rawLocations : [];
   const siteContacts = locations
-    .filter(isRecruitingMaLocation)
+    .filter((loc) => isRecruitingLocationIn(region, loc))
     .flatMap((loc) => (Array.isArray(loc.contacts) ? loc.contacts : []));
   return usableContacts(siteContacts).map(toContact);
 }
@@ -297,7 +302,7 @@ function buildEligibility(module: CtgEligibilityModule | undefined): Eligibility
 // ---------------------------------------------------------------------------
 
 /** Shared view into a raw study's protocol modules, with safe defaults. */
-function studyParts(rawStudy: CtgStudy) {
+function studyParts(rawStudy: CtgStudy, region: Region) {
   const p = rawStudy.protocolSection ?? {};
   const locations = p.contactsLocationsModule?.locations;
   return {
@@ -309,21 +314,22 @@ function studyParts(rawStudy: CtgStudy) {
     eligibility: p.eligibilityModule,
     centralContacts: p.contactsLocationsModule?.centralContacts,
     locations,
-    sites: recruitingMaSites(locations),
+    sites: recruitingSites(locations, region),
   };
 }
 
 /**
  * Slim a raw study to a {@link TrialSummary} (Requirement 4.2). Corrects + filters sites
- * via {@link recruitingMaSites}; returns `null` when no qualifying MA site remains
+ * via {@link recruitingSites}; returns `null` when no qualifying in-region site remains
  * (Requirement 1.3, so the route drops the trial). Otherwise picks {@link nearestSite} and
  * computes `distanceMi` in miles from `origin` (0 when `origin` is absent). Total.
  */
 export function slimStudy(
   rawStudy: CtgStudy,
   origin?: { lat: number; lon: number },
+  region: Region = ACTIVE_REGION,
 ): TrialSummary | null {
-  const parts = studyParts(rawStudy);
+  const parts = studyParts(rawStudy, region);
   if (parts.sites.length === 0) return null;
   const nearest = nearestSite(parts.sites, origin);
   const distanceMi = origin
@@ -352,8 +358,9 @@ export function slimStudy(
 export function toDetail(
   rawStudy: CtgStudy,
   origin?: { lat: number; lon: number },
+  region: Region = ACTIVE_REGION,
 ): TrialDetail {
-  const parts = studyParts(rawStudy);
+  const parts = studyParts(rawStudy, region);
   const hasSites = parts.sites.length > 0;
   const nearest: Site = hasSites
     ? nearestSite(parts.sites, origin)
@@ -372,7 +379,7 @@ export function toDetail(
     briefSummary: parts.briefSummary,
     eligibility: buildEligibility(parts.eligibility),
     sites: parts.sites,
-    contacts: buildContacts(parts.centralContacts, parts.locations),
+    contacts: buildContacts(parts.centralContacts, parts.locations, region),
     stops: [],
   };
 }
