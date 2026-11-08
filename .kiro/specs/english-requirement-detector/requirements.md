@@ -66,21 +66,31 @@ includes English speakers both read as a requirement, and never the reverse.
    headings) THE SYSTEM SHALL return `mentioned / no-sections`, never `required`.
 3. THE SYSTEM SHALL split each raw section with the existing `sectionLines()` and consider
    only English lines.
-4. WHEN an inclusion English line states an English ability with no negation THE SYSTEM SHALL
-   count it as a requirement line.
-5. WHEN an exclusion English line states a lack of English ability (negation, or "other than
-   English" with no other language named) THE SYSTEM SHALL count it as a requirement line.
+4. WHEN an inclusion English line states an English ability (R2.8) and contains no negation
+   anywhere on the line THE SYSTEM SHALL count it as a requirement line. Inability words
+   ("illiterate", "illiteracy", "non-fluent") are negations, so "Illiterate in English" under
+   Inclusion is unclear. *(Independent review, case 1.)*
+5. WHEN an exclusion English line states a lack of English ability THE SYSTEM SHALL count it as
+   a requirement line. The negation must be BOUND to the English word or to its ability word in
+   the same clause: either at most 2 tokens before it with no clause-joining word ("with",
+   "who", "and", "or", …) in between ("Unable to speak English", "Not proficient in English",
+   "Non-English speaking"), or directly after it as a predicate, optionally after one copula
+   ("English proficiency is limited"); "Language other than English" with no other language
+   named also counts. A negation elsewhere on the line ("English-speaking patients with no
+   prior treatment") is not bound and the line is unclear. *(Independent review, case 2.)*
 6. WHEN an inclusion English line contains a negation, OR an exclusion English line has no
    negation, THE SYSTEM SHALL treat it as unclear.
 7. WHEN any English line is unclear (and no veto applies) THE SYSTEM SHALL return
    `mentioned / unclear` for the whole study.
-8. WHEN an English line states no patient language ability (speak, read, write, understand,
-   comprehend, fluent, proficient, literate, converse, communicate, able/ability, or
-   "language other than English") THE SYSTEM SHALL treat it as unclear rather than as a
-   requirement. "Written", "consent" and a bare "language" are not ability cues, because
-   they also describe documents ("materials are written in English"). *(Added in design:
-   fixture `real-line-30`, "child is exposed to English at least 50% of the time", is an
-   inclusion line with no negation that is not an ability requirement.)*
+8. WHEN an English line states no patient language ability THE SYSTEM SHALL treat it as
+   unclear rather than as a requirement. An ability is a language-use word (speak, read,
+   write, understand, comprehend, fluent, proficient, literate, converse, communicate, or
+   "language other than English") in the SAME clause as "English" (clauses split at . ; ! ?)
+   and at most 10 tokens from it. "Able"/"ability" alone, "written", "consent" and a bare
+   "language" are not ability words: they describe capabilities or documents ("Able to attend
+   all visits. Study materials are written in English."). *(Added in design for fixture
+   `real-line-30`, "child is exposed to English at least 50% of the time"; clause scope and
+   the removal of "able"/"ability" added after the independent review, case 3.)*
 9. WHEN the text mentions English but no English line falls inside a usable section (e.g.
    only in a preamble before the first heading) THE SYSTEM SHALL return `mentioned / unclear`.
 
@@ -98,7 +108,11 @@ includes English speakers both read as a requirement, and never the reverse.
    conditional wording (preferred, preferably, ideally, encouraged, "if possible", unless,
    except, accommodated) is treated the same way: it does not state a firm requirement.
 4. Vetoes SHALL apply across the whole study and take precedence over requirement, subject
-   and unclear lines.
+   and unclear lines. THE SYSTEM SHALL check vetoes on every English line of the WHOLE
+   criteria text, including text before the first heading (a plain line split, not a second
+   heading parser), once usable sections exist. Requirement evidence still comes only from the
+   shared parser's sections. *(Independent review, case 4: "Non-English speakers may
+   participate with an interpreter." before the Inclusion heading.)*
 
 ## Requirement 4 — Whose English
 
@@ -135,6 +149,11 @@ includes English speakers both read as a requirement, and never the reverse.
 4. Swapping "Inclusion"/"Exclusion" in a `required` fixture's headings → never `required`.
 5. Appending any veto line to any criteria → never `required`.
 6. Case, bullet-marker and whitespace changes on any fixture keep its status.
+7. Appending a clause with an unrelated negation (" with no prior treatment", "; no prior
+   chemotherapy", …) to a positive English line under Exclusion → never `required`.
+   *(Independent review.)*
+8. A generic-ability clause joined to an English-documents clause → never `required`; a veto
+   line before the first heading → never `required`. *(Independent review.)*
 
 ## Out of scope
 

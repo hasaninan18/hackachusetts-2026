@@ -41,7 +41,19 @@ task here (see requirements.md, "Out of scope").
 - [x] 5. Repo checks: `npm ci`, `npx vitest run --no-file-parallelism`, `npm run typecheck`,
       `npm run lint`, `npm run build`, `node tests/copy-guard.mjs` (results in the PR).
 
-- [ ] 6. Independent review (Hasan's review session) before the PR is marked ready.
+- [ ] 6. Independent review before the PR is marked ready. The first review (of 29df554)
+      returned four false positives; see task 8. A second review is pending.
 
 - [ ] 7. (Separate design, not this branch) API/UI integration for live search, detail and
       DB results, after the BMC pre-send fixes land.
+
+- [x] 8. Independent-review fixes (built with Claude Code, like tasks 1–5)
+  - [x] 8.1 Add the reviewer's regression file unchanged as
+        `lib/english-requirement.review.test.ts`; on 29df554 it fails 4/4.
+  - [x] 8.2 General fixes in `lib/english-requirement.ts`: inability words are negations;
+        exclusion negation must be bound to English; ability must be a language-use word in
+        the same clause as English ("able"/"ability" alone no longer count); vetoes checked
+        on every English line of the whole text. _Requirements: 2.4, 2.5, 2.8, 3.4_
+  - [x] 8.3 `lib/english-requirement.scope.test.ts`: general variants, positive controls,
+        300,000+ character guard, properties R10.7–R10.8. _Requirements: 10.7, 10.8_
+  - [x] 8.4 Rerun repo checks and the fixture hash (results in the PR).
