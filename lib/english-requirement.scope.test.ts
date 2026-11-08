@@ -182,3 +182,108 @@ describe("properties", () => {
     );
   });
 });
+
+// Second independent review (at eb555d5). The reviewer's exact cases are in
+// english-requirement.review2.test.ts; these check the general rules with other wording.
+describe("second review: only a deficiency word after English binds (R2.5)", () => {
+  it.each([
+    "English speakers not currently pregnant",
+    "English readers not enrolled in another trial",
+    "English proficiency not measured at baseline",
+    "English-speaking adults no longer in treatment",
+    "Fluent English speakers who are not smokers",
+    "English speakers don't require sedation",
+  ])("exclusion '%s' is not required", (line) => {
+    expect(detectEnglishRequirement(exc(line)).status).not.toBe("required");
+  });
+
+  it.each(["English proficiency is poor", "English proficiency insufficient for consent", "English literacy is limited"])(
+    "exclusion control '%s' is still required",
+    (line) => {
+      expect(detectEnglishRequirement(exc(line))).toEqual({ status: "required", evidence: [line] });
+    },
+  );
+});
+
+describe("second review: the ability word must be linked to English (R2.8)", () => {
+  it.each([
+    "Able to follow instructions: forms are in English",
+    "Can comprehend instructions (provided in English)",
+    "Able to write, surveys are available in English",
+    "Reads at a 6th-grade level and was given an English handout",
+    "Understands the procedures which are explained in English",
+  ])("inclusion '%s' is not required", (line) => {
+    expect(detectEnglishRequirement(inc(line))).toEqual({ status: "mentioned", reason: "unclear" });
+  });
+
+  it.each([
+    "Must be able to read, speak and understand English",
+    "Able to read and write English",
+    "English speaking, reading and writing",
+    "Speaks and understands English fluently",
+  ])("inclusion control '%s' is still required", (line) => {
+    expect(detectEnglishRequirement(inc(line))).toEqual({ status: "required", evidence: [line] });
+  });
+
+  it("known miss (fails closed): a comma list whose last verb is not a language word", () => {
+    const line = "Able to read, understand, and sign the consent form in English";
+    expect(detectEnglishRequirement(inc(line))).toEqual({ status: "mentioned", reason: "unclear" });
+  });
+});
+
+describe("second review properties", () => {
+  const englishSubject = fc.constantFrom(
+    "English speakers",
+    "English-speaking adults",
+    "Fluent English speakers",
+    "English literacy",
+    "English proficiency",
+    "English readers",
+  );
+  const otherPredicate = fc.constantFrom(
+    "on dialysis",
+    "previously treated",
+    "assessed",
+    "able to attend visits",
+    "currently enrolled",
+    "pregnant",
+    "taking insulin",
+  );
+  const looseNegation = fc.constantFrom("not", "no longer", "never", "don't need to be", "who are not");
+
+  it("R10.9 a negation after English that is not a deficiency word never makes an exclusion requirement", () => {
+    fc.assert(
+      fc.property(englishSubject, looseNegation, otherPredicate, (subject, neg, pred) => {
+        expect(detectEnglishRequirement(exc(`${subject} ${neg} ${pred}`)).status).not.toBe("required");
+      }),
+      { numRuns: 300 },
+    );
+  });
+
+  const abilityAboutSomethingElse = fc.constantFrom(
+    "Able to understand study procedures",
+    "Able to communicate symptoms",
+    "Understands the study",
+    "Can read",
+    "Reads street signs",
+    "Able to write a diary",
+  );
+  const joiner = fc.constantFrom(", ", " (vision adequate) and ", ": ", " which ", " that ", "; ");
+  const englishThing = fc.constantFrom(
+    "questionnaires are in English",
+    "the app is in English",
+    "materials provided in English",
+    "has an English-language phone",
+    "is delivered in English",
+    "were written in English",
+  );
+
+  it("R10.10 an ability word separated from English by a link barrier is never a requirement", () => {
+    fc.assert(
+      fc.property(abilityAboutSomethingElse, joiner, englishThing, (ability, join, thing) => {
+        expect(detectEnglishRequirement(inc(`${ability}${join}${thing}`)).status).not.toBe("required");
+      }),
+      { numRuns: 300 },
+    );
+  });
+});

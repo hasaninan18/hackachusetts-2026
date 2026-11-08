@@ -54,15 +54,27 @@ Each English line's `normalized` form (bullet stripped, whitespace collapsed, lo
 | 2 | `interpret*` or `translat*` | veto |
 | 3 | welcome / allowed / permitted / eligible / "will not be excluded" / "may join" / "may participate" / "may be included" / "not required"; hedges: preferred / preferably / ideally / encouraged / "if possible" / unless / except / accommodat* | veto |
 | 4 | names a non-patient subject (parent, caregiver, guardian, clinician, staff, provider, partner, proxy, doula, family, father, mother, teacher, coach, spouse, physician, nurse, …) | subject |
-| 5 | no clause has a language-ability word within 10 tokens of "english" (speak/speaking/speaker, read, write, understand, comprehend, fluent, proficient/proficiency, literate/literacy/illiterate, converse/conversing, communicate) and no clause says "other than english"; "able"/"ability", "written", "consent" and bare "language" are deliberately not ability words | unclear |
+| 5 | no clause has a language-ability word LINKED to "english" (within 10 tokens, no link barrier between) (speak/speaking/speaker, read, write, understand, comprehend, fluent, proficient/proficiency, literate/literacy/illiterate, converse/conversing, communicate) and no clause says "other than english"; "able"/"ability", "written", "consent" and bare "language" are deliberately not ability words | unclear |
 | 6 | inclusion: no negation token anywhere on the line | requirement |
 | 7 | exclusion: some clause has a negation BOUND to "english" or to an in-scope ability word | requirement |
 | 8 | otherwise (inclusion with any negation, or exclusion without a bound negation) | unclear |
 
 **Clauses and tokens.** The normalized line is split into clauses at `.`, `;`, `!` or `?`
-followed by a space or the end, and each clause into word tokens (letters, digits,
-apostrophes; "non-english" is the two tokens `non`, `english`). Ability and negation are
-only ever combined within one clause.
+followed by a space or the end, and each clause into tokens: words (letters, digits,
+apostrophes; "non-english" is the two tokens `non`, `english`) plus the phrase punctuation
+`, ( ) [ ] :` as tokens of their own. Ability and negation are only ever combined within one
+clause.
+
+**Linked ability.** An ability word counts only when it is linked to an "english" token: at
+most 10 tokens apart with no link barrier between them. Link barriers are the phrase
+punctuation above; verbs that give English its own predicate (`is are was were be been
+being has have had provided available written given offered conducted administered printed
+delivered presented used`); and relative words (`who whom whose which that where while
+because if when`). Hyphens do not split ("English-speaking", "English-language"). This is
+what keeps "Able to communicate symptoms, the app is in English" and "Can read (vision
+adequate) and has an English-language phone" from linking `communicate` / `read` to English,
+while "Must be able to read, speak and understand English" still links through
+`understand`.
 
 **Negation tokens:** `not`, `no`, `non`, `unable`, `inability`, `cannot`, `lack*`, `poor`,
 `poorly`, `limited`, `insufficient`, `inadequate`, `without`, `never`, `neither`, `nor`, any
@@ -76,9 +88,11 @@ Spanish" is a veto and "Language other than English" is an exclusion requirement
 - comes at most **2** tokens BEFORE "english" or an in-scope ability word, with none of
   `with who whom whose which that and or but if when while because for` in between
   (`unable to speak`, `not proficient in`, `non english`, `inability to comprehend`); or
-- comes directly AFTER one, or after one copula (`is are was were be been`), and is one of
-  `not limited poor insufficient inadequate lacking …n't` (`english proficiency is limited`).
-  `no` / `without` after English start a new phrase and never bind.
+- comes directly AFTER one, or after one copula (`is are was were be been`), and is a
+  deficiency word: `limited poor insufficient inadequate lacking` (`english proficiency is
+  limited`). A bare `not` / `no` / `never` / `without` / `…n't` after English starts a new
+  phrase about something else ("English speakers not on dialysis", "English literacy not
+  assessed") and never binds. (Second review: `not` and `…n't` were removed from this list.)
 
 Inclusion is deliberately left stricter: ANY negation token anywhere on the line makes it
 unclear. That also keeps R10.4 (Inclusion↔Exclusion swap) true by construction, because
@@ -142,6 +156,22 @@ The reviewer's file `lib/english-requirement.review.test.ts` (added unchanged) f
 `lib/english-requirement.scope.test.ts` checks the same rules with other wording, positive
 controls that must still flag, a 300,000+ character guard, and the new properties R10.7–R10.8.
 
+## Second independent review fixes (of eb555d5)
+
+The reviewer's eight cases are in `lib/english-requirement.review2.test.ts` (new file, with
+the three real requirements the reviewer listed as controls); on eb555d5 all eight returned
+`required`.
+
+| Issue | Cases | General rule that fixes it |
+|---|---|---|
+| A `not` right after English counted as lacking English | "English speakers not on dialysis", "… not previously treated", "English literacy not assessed", "Fluent English speakers not able to attend visits" | after English, only a deficiency word binds (R2.5) |
+| Commas (and brackets, or a new verb) did not separate an ability word from an English-documents phrase | "Able to understand study procedures, questionnaires are in English", "Able to communicate symptoms, the app is in English", "Understands the study, materials provided in English", "Can read (vision adequate) and has an English-language phone" | the ability word must be linked to English with no link barrier between (R2.8) |
+
+More variants, controls that must still flag, one known miss ("Able to read, understand, and
+sign the consent form in English" is now unclear) and properties R10.9–R10.10 are in
+`lib/english-requirement.scope.test.ts`. Open question, unchanged in this round by the
+reviewer's request: a line without the word "English" never vetoes.
+
 ## Testing strategy
 
 `lib/english-requirement.test.ts` (Vitest + fast-check, both already dev dependencies):
@@ -158,9 +188,10 @@ controls that must still flag, a 300,000+ character guard, and the new propertie
    out-of-order headings, English outside any section, evidence order and casing, "New
    England"/"Englishman", 50,000+ chars, non-Latin text, format changes.
 4. **Properties** (≥ 100 runs each): R10.1–R10.6 in `english-requirement.test.ts`;
-   R10.7–R10.8 in `english-requirement.scope.test.ts`.
-5. **Review regressions**: `english-requirement.review.test.ts` (the reviewer's file,
-   unchanged) and `english-requirement.scope.test.ts` (general variants and controls). Format invariance uses transforms that keep
+   R10.7–R10.10 in `english-requirement.scope.test.ts`.
+5. **Review regressions**: `english-requirement.review.test.ts` (the reviewer's first-review
+   file, unchanged), `english-requirement.review2.test.ts` (second-review cases) and
+   `english-requirement.scope.test.ts` (general variants and controls). Format invariance uses transforms that keep
    line and heading order (case flip, bullet-marker swap among `*`/`-`/`•`, extra spaces/tabs
    inside lines, blank lines between lines).
 

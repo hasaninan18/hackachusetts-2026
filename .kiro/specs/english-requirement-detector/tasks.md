@@ -42,7 +42,8 @@ task here (see requirements.md, "Out of scope").
       `npm run lint`, `npm run build`, `node tests/copy-guard.mjs` (results in the PR).
 
 - [ ] 6. Independent review before the PR is marked ready. The first review (of 29df554)
-      returned four false positives; see task 8. A second review is pending.
+      returned four false positives (task 8); the second (of eb555d5) returned eight more in
+      two bug types (task 9). A third review is pending.
 
 - [ ] 7. (Separate design, not this branch) API/UI integration for live search, detail and
       DB results, after the BMC pre-send fixes land.
@@ -57,3 +58,14 @@ task here (see requirements.md, "Out of scope").
   - [x] 8.3 `lib/english-requirement.scope.test.ts`: general variants, positive controls,
         300,000+ character guard, properties R10.7–R10.8. _Requirements: 10.7, 10.8_
   - [x] 8.4 Rerun repo checks and the fixture hash (results in the PR).
+
+- [x] 9. Second-review fixes (built with Claude Code)
+  - [x] 9.1 Add the eight reported cases and three controls as
+        `lib/english-requirement.review2.test.ts`; on eb555d5 the eight fail and the controls
+        pass.
+  - [x] 9.2 After English, only a deficiency word binds a negation; an ability word must be
+        linked to English with no link barrier (phrase punctuation, a predicate verb or a
+        relative word) in between. _Requirements: 2.5, 2.8_
+  - [x] 9.3 Scope tests: variants, controls, a known miss, properties R10.9–R10.10.
+        _Requirements: 10.9, 10.10_
+  - [x] 9.4 Rerun repo checks and the fixture hash (results in the PR).

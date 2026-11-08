@@ -73,11 +73,14 @@ includes English speakers both read as a requirement, and never the reverse.
 5. WHEN an exclusion English line states a lack of English ability THE SYSTEM SHALL count it as
    a requirement line. The negation must be BOUND to the English word or to its ability word in
    the same clause: either at most 2 tokens before it with no clause-joining word ("with",
-   "who", "and", "or", …) in between ("Unable to speak English", "Not proficient in English",
-   "Non-English speaking"), or directly after it as a predicate, optionally after one copula
-   ("English proficiency is limited"); "Language other than English" with no other language
-   named also counts. A negation elsewhere on the line ("English-speaking patients with no
-   prior treatment") is not bound and the line is unclear. *(Independent review, case 2.)*
+   "who", "and", "or", …) or phrase punctuation in between ("Unable to speak English", "Not
+   proficient in English", "Non-English speaking"), or, AFTER it, only a deficiency word
+   (limited, poor, insufficient, inadequate, lacking) directly or after one copula ("English
+   proficiency is limited"); "Language other than English" with no other language named also
+   counts. A negation elsewhere on the line ("English-speaking patients with no prior
+   treatment") is not bound, and neither is a bare "not" / "no" / "never" after English
+   ("English speakers not on dialysis", "English literacy not assessed"); the line is unclear.
+   *(Independent review, case 2; second review, issue 1.)*
 6. WHEN an inclusion English line contains a negation, OR an exclusion English line has no
    negation, THE SYSTEM SHALL treat it as unclear.
 7. WHEN any English line is unclear (and no veto applies) THE SYSTEM SHALL return
@@ -85,8 +88,13 @@ includes English speakers both read as a requirement, and never the reverse.
 8. WHEN an English line states no patient language ability THE SYSTEM SHALL treat it as
    unclear rather than as a requirement. An ability is a language-use word (speak, read,
    write, understand, comprehend, fluent, proficient, literate, converse, communicate, or
-   "language other than English") in the SAME clause as "English" (clauses split at . ; ! ?)
-   and at most 10 tokens from it. "Able"/"ability" alone, "written", "consent" and a bare
+   "language other than English") LINKED to "English": in the same clause (clauses split at
+   . ; ! ?), at most 10 tokens from it, and with no link barrier in between: phrase
+   punctuation (, ( ) [ ] :), a verb that gives English its own predicate (is/are/was/were/
+   be/been/being, has/have/had, provided/available/written/given/offered/conducted/
+   administered/printed/delivered/presented/used) or a relative word (who/whom/whose/which/
+   that/where/while/because/if/when). "Able to understand study procedures, questionnaires
+   are in English" is therefore unclear. *(Second review, issue 2.)* "Able"/"ability" alone, "written", "consent" and a bare
    "language" are not ability words: they describe capabilities or documents ("Able to attend
    all visits. Study materials are written in English."). *(Added in design for fixture
    `real-line-30`, "child is exposed to English at least 50% of the time"; clause scope and
@@ -154,6 +162,10 @@ includes English speakers both read as a requirement, and never the reverse.
    *(Independent review.)*
 8. A generic-ability clause joined to an English-documents clause → never `required`; a veto
    line before the first heading → never `required`. *(Independent review.)*
+9. A non-deficiency negation after an English subject ("English speakers not / no longer /
+   never …") under Exclusion → never `required`. *(Second review.)*
+10. A language-ability word separated from an English-documents phrase by a link barrier
+    (", ", ": ", "(…) and has", "which", "that") → never `required`. *(Second review.)*
 
 ## Out of scope
 

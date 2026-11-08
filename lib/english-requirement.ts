@@ -82,13 +82,16 @@ function isVeto(normalized: string): boolean {
 
 // --- Clauses and tokens (R2.4, R2.5, R2.8) -----------------------------------------------
 // Scope rules work on clauses (a line split at . ; ! ? followed by a space or the end) and on
-// word tokens (letters, digits, apostrophes; "non-english" is two tokens). Matching words in
-// one sentence never combine with words in another sentence of the same line.
+// tokens: words (letters, digits, apostrophes; "non-english" is two words) plus the phrase
+// punctuation , ( ) [ ] : kept as their own tokens, because they break the link between an
+// ability word and "english" (see LINK_BARRIER). Words in one sentence never combine with
+// words in another sentence of the same line.
+const PUNCTUATION_TOKENS = new Set([",", "(", ")", "[", "]", ":"]);
 function clausesOf(normalized: string): string[][] {
   return normalized
     .split(/[.;!?]+(?=\s|$)/)
-    .map((clause) => clause.split(/[^a-z0-9'’]+/).filter((t) => t.length > 0))
-    .filter((tokens) => tokens.length > 0);
+    .map((clause) => clause.match(/[a-z0-9'’]+|[,()[\]:]/g) ?? [])
+    .filter((tokens) => tokens.some((t) => !PUNCTUATION_TOKENS.has(t)));
 }
 
 // --- Language ability (R2.8) ----------------------------------------------------------------
@@ -104,10 +107,25 @@ const ABILITY_TOKENS = new Set([
   "literate", "literacy", "illiterate", "illiteracy",
   "converse", "conversing", "conversant", "communicate", "communicating", "communication",
 ]);
-// The ability word and "english" must be in the same clause and at most this many tokens
-// apart. 10 is the smallest window that keeps fixture real-line-05 ("Ability to understand
-// and provide a signed and completed consent document in English": understand … english = 10).
+// The ability word must BELONG to "english": same clause, at most ABILITY_WINDOW tokens apart,
+// and nothing in between that starts a new phrase about something else (LINK_BARRIER):
+//   - phrase punctuation , ( ) [ ] :  ("Able to communicate symptoms, the app is in English");
+//   - a verb or relative word that gives English its own predicate, usually about documents or
+//     devices: is/are/was/were/be/been/being, has/have/had, provided/available/written/given/
+//     offered/conducted/administered/printed/delivered/presented/used, who/whom/whose/which/
+//     that/where/while/because/if/when ("materials provided in English", "has an
+//     English-language phone").
+// 10 is the smallest window that keeps fixture real-line-05 ("Ability to understand and
+// provide a signed and completed consent document in English": understand … english = 10;
+// nothing in between is a barrier).
 const ABILITY_WINDOW = 10;
+const LINK_BARRIER_TOKENS = new Set([
+  ...PUNCTUATION_TOKENS,
+  "is", "are", "was", "were", "be", "been", "being", "has", "have", "had",
+  "provided", "available", "written", "given", "offered", "conducted", "administered", "printed",
+  "delivered", "presented", "used",
+  "who", "whom", "whose", "which", "that", "where", "while", "because", "if", "when",
+]);
 
 // --- Negation (R2.5, R2.6) ------------------------------------------------------------------
 // Inability words ("illiterate", "non-fluent", "non-English") are negations too.
@@ -118,23 +136,24 @@ const NEGATION_TOKENS = new Set([
 ]);
 const isNegationToken = (t: string): boolean => NEGATION_TOKENS.has(t) || /n['’]t$/.test(t);
 // In exclusion, a negation only says "lacks English" when it is BOUND to the English word or
-// to an ability word in scope of it:
-//   - BEFORE it: at most NEGATION_WINDOW tokens earlier, with no clause-joining word in
-//     between ("unable to speak English", "not proficient in English", "non-English");
-//   - AFTER it: only as a predicate, i.e. directly after it or after a single copula
-//     ("English proficiency is limited", "English is not ...").
+// to an ability word linked to it:
+//   - BEFORE it: at most NEGATION_WINDOW tokens earlier, with no clause-joining word or phrase
+//     punctuation in between ("unable to speak English", "not proficient in English",
+//     "non-English");
+//   - AFTER it: only a word that itself grades the ability (DEFICIENCY), directly after it or
+//     after a single copula ("English proficiency is limited", "English skills are poor").
+//     A bare "not" / "no" / "without" / "…n't" after English starts a new phrase about
+//     something else ("English speakers not on dialysis", "English literacy not assessed")
+//     and never binds.
 // 2 is the smallest window that keeps the fixtures ("unable to speak", "inability to
-// comprehend", "unable to read or write"). This keeps "English-speaking patients with no /
-// without prior treatment" from reading the treatment negation as a language one.
+// comprehend", "unable to read or write").
 const NEGATION_WINDOW = 2;
 const BARRIER_TOKENS = new Set([
+  ...PUNCTUATION_TOKENS,
   "with", "who", "whom", "whose", "which", "that", "and", "or", "but", "if", "when", "while", "because", "for",
 ]);
 const COPULA_TOKENS = new Set(["is", "are", "was", "were", "be", "been"]);
-// Only these can follow English as a predicate. "no" / "without" after English start a new
-// phrase ("English speaking without prior surgery") and never negate it.
-const PREDICATE_NEGATION_TOKENS = new Set(["not", "limited", "poor", "insufficient", "inadequate", "lacking"]);
-const isPredicateNegation = (t: string): boolean => PREDICATE_NEGATION_TOKENS.has(t) || /n['’]t$/.test(t);
+const DEFICIENCY_TOKENS = new Set(["limited", "poor", "insufficient", "inadequate", "lacking"]);
 
 function isOtherThanEnglish(tokens: string[], i: number): boolean {
   return tokens[i] === "english" && tokens[i - 1] === "than" && tokens[i - 2] === "other";
@@ -145,24 +164,28 @@ interface ClauseFacts {
   boundNegation: boolean; // a negation bound to "english" or to that ability word
 }
 
-// Linear in the clause length: each check looks at a fixed-size neighbourhood.
+// Linear in the clause length: two passes plus fixed-size neighbourhoods.
 function clauseFacts(tokens: string[]): ClauseFacts {
   const len = tokens.length;
-  // Distance from each token to the nearest "english" (two passes).
-  const dist = new Array<number>(len).fill(Infinity);
-  for (let i = 0, last = -Infinity; i < len; i++) {
-    if (tokens[i] === "english") last = i;
-    dist[i] = i - last;
-  }
-  for (let i = len - 1, next = Infinity; i >= 0; i--) {
-    if (tokens[i] === "english") next = i;
-    dist[i] = Math.min(dist[i], next - i);
-  }
   if (!tokens.includes("english")) return { ability: false, boundNegation: false };
   // "Language other than English": the patient's language is not English (ability + negation).
   if (tokens.some((_t, i) => isOtherThanEnglish(tokens, i))) return { ability: true, boundNegation: true };
 
-  // Targets: "english" itself, and language-ability words within ABILITY_WINDOW of it.
+  // Distance from each token to the nearest "english" it is LINKED to: the passes stop at a
+  // link barrier, so an "english" on the far side of one is never reached.
+  const dist = new Array<number>(len).fill(Infinity);
+  for (let i = 0, last = -Infinity; i < len; i++) {
+    if (tokens[i] === "english") last = i;
+    else if (LINK_BARRIER_TOKENS.has(tokens[i])) last = -Infinity;
+    dist[i] = i - last;
+  }
+  for (let i = len - 1, next = Infinity; i >= 0; i--) {
+    if (tokens[i] === "english") next = i;
+    else if (LINK_BARRIER_TOKENS.has(tokens[i])) next = Infinity;
+    dist[i] = Math.min(dist[i], next - i);
+  }
+
+  // Targets: "english" itself, and language-ability words linked to it.
   const isTarget = tokens.map(
     (t, i) => t === "english" || (ABILITY_TOKENS.has(t) && dist[i] <= ABILITY_WINDOW),
   );
@@ -177,8 +200,8 @@ function clauseFacts(tokens: string[]): ClauseFacts {
       if (isTarget[k]) return true;
       if (BARRIER_TOKENS.has(tokens[k])) break;
     }
-    // After a target: only a predicate, "english limited" / "english <copula> limited".
-    if (!isPredicateNegation(t)) return false;
+    // After a target: only a deficiency word, "english limited" / "english <copula> limited".
+    if (!DEFICIENCY_TOKENS.has(t)) return false;
     return (n >= 1 && isTarget[n - 1]) || (n >= 2 && COPULA_TOKENS.has(tokens[n - 1]) && isTarget[n - 2]);
   });
   return { ability: true, boundNegation };
