@@ -6,7 +6,8 @@
 //
 //   validate lat/lon (400, no upstream call if bad)
 //     → normalizeRadius
-//     → [database configured (lib/db/client.ts)] searchTrials → { trials, total } JSON,
+//     → [database configured (lib/db/client.ts)] searchTrialsWithTotal → { trials, total } JSON
+//       (total = every in-radius match, trials = the nearest RESULT_LIMIT),
 //       or on any database error continue below
 //     → buildSearchUrl
 //     → cachedFetchJson (10-min cache, keyed by the first-page upstream URL)
@@ -47,7 +48,7 @@ import {
 } from "../../../lib/clinicaltrials";
 import { toEnglishCondition } from "../../../lib/condition-terms";
 import { getDb } from "../../../lib/db/client";
-import { searchTrials } from "../../../lib/db/trials";
+import { searchTrialsWithTotal } from "../../../lib/db/trials";
 import { ACTIVE_REGION } from "../../../lib/region";
 
 /** Most trials one database search returns (the live path returns the same number). */
@@ -164,7 +165,9 @@ export async function GET(request: Request): Promise<NextResponse> {
   const db = await getDb();
   if (db) {
     try {
-      const trials = await searchTrials(db, {
+      // `total` counts every in-radius match; `trials` is the nearest DB_RESULT_LIMIT of them,
+      // the same contract as the live path below.
+      const { trials, total } = await searchTrialsWithTotal(db, {
         lat,
         lon,
         radiusMi: radius,
@@ -172,7 +175,7 @@ export async function GET(request: Request): Promise<NextResponse> {
         states: ACTIVE_REGION.states,
         limit: DB_RESULT_LIMIT,
       });
-      return NextResponse.json<TrialsResponse>({ trials, total: trials.length });
+      return NextResponse.json<TrialsResponse>({ trials, total });
     } catch (err) {
       console.error("[db] search failed; falling back to ClinicalTrials.gov", err);
     }
