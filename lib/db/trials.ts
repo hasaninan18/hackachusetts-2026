@@ -147,7 +147,9 @@ with nearest as (
    order by s.nct_id, meters
 )
 select t.nct_id, t.title, t.conditions, t.phase, n.facility, n.city, n.zip,
-       n.location_precision, n.lat, n.lon, n.meters
+       n.location_precision, n.lat, n.lon, n.meters,
+       -- every match before LIMIT: window functions run before LIMIT is applied
+       (count(*) over ())::int as total
   from nearest n
   join trials t using (nct_id)
  where $4 = '' or t.search @@ websearch_to_tsquery('english', $4)
@@ -166,10 +168,24 @@ interface SearchRow {
   lat: number;
   lon: number;
   meters: number;
+  /** Matches before LIMIT (the same on every row). */
+  total?: number;
 }
 
 /** Trials with a site within the radius, nearest site first; same shape as /api/trials. */
 export async function searchTrials(db: Queryable, q: SearchQuery): Promise<TrialSummary[]> {
+  return (await searchTrialsWithTotal(db, q)).trials;
+}
+
+/**
+ * {@link searchTrials} plus `total`: the number of in-radius matches before the `limit`, so a
+ * search with more matches than the limit can report how many there are (as the live path
+ * does). Counted by the same query, so `trials` and `total` always describe the same search.
+ */
+export async function searchTrialsWithTotal(
+  db: Queryable,
+  q: SearchQuery,
+): Promise<{ trials: TrialSummary[]; total: number }> {
   const { rows } = await db.query<SearchRow>(SEARCH_TRIALS, [
     q.lat,
     q.lon,
@@ -178,7 +194,7 @@ export async function searchTrials(db: Queryable, q: SearchQuery): Promise<Trial
     q.limit ?? 50,
     q.states ? [...q.states] : null,
   ]);
-  return rows.map((r) => {
+  const trials = rows.map((r) => {
     const nearestSite: Site = {
       name: r.facility,
       city: r.city,
@@ -196,4 +212,9 @@ export async function searchTrials(db: Queryable, q: SearchQuery): Promise<Trial
       distanceMi: r.meters / METERS_PER_MILE,
     };
   });
+  // Every row carries the same window count. A Queryable that does not return the column
+  // (a test double) falls back to the rows it returned, which was the previous behavior.
+  const counted = rows.length > 0 ? Number(rows[0].total) : 0;
+  const total = Number.isFinite(counted) ? Math.max(counted, trials.length) : trials.length;
+  return { trials, total };
 }
